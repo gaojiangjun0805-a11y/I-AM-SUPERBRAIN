@@ -1,0 +1,61 @@
+workflows:
+  ios-app-store:
+    name: 公约数列 — App Store Release
+    instance_type: mac_mini_m2   # 免费额度内可用
+    max_build_duration: 60       # 分钟
+
+    environment:
+      # Codemagic 网页里配置好证书后会自动填充这些变量
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.YOURNAME.gongyueshullie   # !! 改成你的 Bundle ID
+
+      vars:
+        XCODE_SCHEME: GongyuShulie
+        XCODE_WORKSPACE: GongyuShulie.xcodeproj
+
+    scripts:
+      # 1. 安装 XcodeGen（根据 project.yml 生成 .xcodeproj）
+      - name: Install XcodeGen
+        script: brew install xcodegen
+
+      # 2. 生成 Xcode 项目
+      - name: Generate Xcode project
+        script: xcodegen generate
+
+      # 3. 设置代码签名
+      - name: Set up code signing
+        script: xcode-project use-profiles
+
+      # 4. 编译打包
+      - name: Build archive
+        script: |
+          xcodebuild \
+            -project "$XCODE_WORKSPACE" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -archivePath build/GongyuShulie.xcarchive \
+            -destination "generic/platform=iOS" \
+            clean archive
+
+      # 5. 导出 IPA
+      - name: Export IPA
+        script: |
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/GongyuShulie.xcarchive \
+            -exportOptionsPlist exportOptions.plist \
+            -exportPath build/ipa \
+            -allowProvisioningUpdates
+
+    # 保存产物
+    artifacts:
+      - build/ipa/*.ipa
+      - build/**/*.xcarchive
+
+    # 自动上传到 App Store Connect
+    publishing:
+      app_store_connect:
+        auth: integration          # 用 Codemagic 里配置的 API Key
+        submit_to_testflight: true # 先发 TestFlight 测试，没问题再正式发布
+        submit_to_app_store: false # 改 true 则直接送审（建议先用 TestFlight）

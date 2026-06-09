@@ -1,0 +1,42 @@
+# XcodeGen 配置 — Codemagic 用这个自动生成 .xcodeproj
+# 文档: https://github.com/yonaskolb/XcodeGen
+
+name: GongyuShulie          # Xcode 内部名称（ASCII）
+options:
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "16.0"
+
+targets:
+  GongyuShulie:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+
+    # 源码文件
+    sources:
+      - path: 公约数列
+        excludes:
+          - Info.plist
+          - Assets.xcassets
+          - Game/**
+
+    # 资源文件（打包进 Bundle）
+    resources:
+      - path: 公约数列/Assets.xcassets
+      - path: 公约数列/Game
+
+    # Info.plist 路径
+    info:
+      path: 公约数列/Info.plist
+
+    settings:
+      base:
+        # !! 把下面 Bundle ID 改成你在 Apple 后台注册的 !!
+        PRODUCT_BUNDLE_IDENTIFIER: com.YOURNAME.gongyueshullie
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"        # 1=iPhone only
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: "NO"
+        SWIFT_VERSION: "5.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
