@@ -295,7 +295,7 @@ button:disabled{opacity:0.3;pointer-events:none;}
       <button class="diff-btn"        id="d2" onclick="setDiff(2)">🌙 中级</button>
       <button class="diff-btn"        id="d3" onclick="setDiff(3)">🔥 高级</button>
     </div>
-    <button id="mode-toggle" class="on" onclick="toggleMode()">🎓 学习模式</button>
+    <button id="mode-toggle" onclick="toggleMode()">⚔️ 挑战模式</button>
   </div>
 
   <div id="hud">
@@ -645,7 +645,7 @@ let cfg=DIFF_CONFIG[1],curDiff=1,board=[],selected=null,score=0;
 let remaining=0,timeLeft=0,timerID=null;
 let hintData=null,hintTO=null,undoStack=[];
 let comboCount=0,lastMoveTime=0;
-let learningMode=true;
+let learningMode=false;
 // 结算统计
 let stat={baseSum:0,comboSum:0,maxCombo:0,matches:0,elims:0};
 
