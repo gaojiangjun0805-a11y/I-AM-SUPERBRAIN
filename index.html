@@ -277,7 +277,7 @@ button:disabled{opacity:0.3;pointer-events:none;}
     <div id="welcome-logo">G-Game</div>
     <div id="welcome-title">欢迎来到 G-Game</div>
     <div id="welcome-sub">公约数列 · 两数相连，各除最大公约数，商为 1 即消除 ✨</div>
-    <button id="welcome-start">开始游戏</button>
+    <button id="welcome-start" onclick="launchGame(event)">开始游戏</button>
   </div>
 </div>
 
@@ -1173,21 +1173,21 @@ document.getElementById('sb-again').addEventListener('click',()=>{document.getEl
 document.getElementById('sb-next').addEventListener('click',()=>{document.getElementById('settle-mask').classList.remove('show');if(curDiff<3)setDiff(curDiff+1);});
 document.getElementById('sb-close').addEventListener('click',()=>document.getElementById('settle-mask').classList.remove('show'));
 
-// 预生成棋盘（隐藏在欢迎页后），点「开始游戏」才显示并计时＋播放音乐
-newGame();clearInterval(timerID);timerID=null;
-let _launched=false;
+// 点「开始游戏」才生成盘面、计时、播放音乐
+var _launched=false;
 function launchGame(e){
-  if(e){e.preventDefault();e.stopPropagation();}
+  if(e){try{e.preventDefault();e.stopPropagation();}catch(_){}}
   if(_launched)return;_launched=true;
-  const mask=document.getElementById('welcome-mask');
-  mask.classList.add('hide');
-  try{newGame();}catch(err){}
+  var mask=document.getElementById('welcome-mask');
+  if(mask)mask.style.display='none';
+  try{newGame();}catch(err){alert('出错了:'+err.message);}
   try{if(!_autoStartDone){_autoStartDone=true;startMusic();}}catch(err){}
 }
-const _wsBtn=document.getElementById('welcome-start');
-_wsBtn.addEventListener('click',launchGame);
-_wsBtn.addEventListener('touchend',launchGame);
-document.getElementById('welcome-mask').addEventListener('click',launchGame);
+// 先绑事件，确保即使后续代码出错也能点
+(function(){
+  var b=document.getElementById('welcome-start');
+  if(b){b.addEventListener('click',launchGame);b.addEventListener('touchend',launchGame);}
+})();
 </script>
 </body>
 </html>
