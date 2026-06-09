@@ -55,7 +55,14 @@ workflows:
 
     # 自动上传到 App Store Connect
     publishing:
-      app_store_connect:
-        auth: integration          # 用 Codemagic 里配置的 API Key
-        submit_to_testflight: true # 先发 TestFlight 测试，没问题再正式发布
-        submit_to_app_store: false # 改 true 则直接送审（建议先用 TestFlight）
+      email:
+        recipients:
+          - gaojiangjun0805@gmail.com
+        notify:
+          success: true
+          failure: true
+      # App Store 发布：配置好 Apple 证书后取消下面注释
+      # app_store_connect:
+      #   auth: integration
+      #   submit_to_testflight: true
+      #   submit_to_app_store: false
