@@ -251,9 +251,35 @@ button:disabled{opacity:0.3;pointer-events:none;}
 #sb-again{background:linear-gradient(135deg,#4ade80,#16a34a);color:#04210f;}
 #sb-next{background:linear-gradient(135deg,#fde68a,#f59e0b);color:#1a1a2e;}
 #sb-close{background:rgba(255,255,255,0.1);color:#94a3b8;}
+#welcome-mask{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 50% 30%,#1b2550,#0a0e1f 70%);transition:opacity .5s ease;}
+#welcome-mask.hide{opacity:0;pointer-events:none;}
+#welcome-card{text-align:center;padding:0 24px;animation:wcIn .6s ease both;}
+@keyframes wcIn{from{opacity:0;transform:translateY(24px) scale(.96);}to{opacity:1;transform:none;}}
+#welcome-logo{font-size:clamp(48px,14vw,92px);font-weight:900;letter-spacing:2px;
+  background:linear-gradient(135deg,#fde68a,#60a5fa,#c084fc);-webkit-background-clip:text;background-clip:text;
+  color:transparent;filter:drop-shadow(0 4px 24px rgba(96,165,250,.4));margin-bottom:6px;}
+#welcome-title{font-size:clamp(20px,5vw,30px);font-weight:700;color:#e8ecff;margin-bottom:14px;}
+#welcome-sub{font-size:clamp(13px,3.4vw,16px);color:#9aa6d6;line-height:1.7;max-width:420px;margin:0 auto 34px;}
+#welcome-start{font-size:clamp(18px,4.6vw,22px);font-weight:800;color:#0a0e1f;cursor:pointer;border:none;
+  padding:16px 56px;border-radius:999px;background:linear-gradient(135deg,#fde68a,#f59e0b);
+  box-shadow:0 8px 32px rgba(245,158,11,.5);transition:transform .15s ease,box-shadow .15s ease;
+  animation:wcPulse 1.8s ease-in-out infinite;}
+#welcome-start:hover{transform:translateY(-2px) scale(1.04);box-shadow:0 12px 40px rgba(245,158,11,.65);}
+#welcome-start:active{transform:scale(.97);}
+@keyframes wcPulse{0%,100%{box-shadow:0 8px 32px rgba(245,158,11,.5);}50%{box-shadow:0 8px 44px rgba(245,158,11,.85);}}
 </style>
 </head>
 <body>
+
+<div id="welcome-mask">
+  <div id="welcome-card">
+    <div id="welcome-logo">G-Game</div>
+    <div id="welcome-title">欢迎来到 G-Game</div>
+    <div id="welcome-sub">公约数列 · 两数相连，各除最大公约数，商为 1 即消除 ✨</div>
+    <button id="welcome-start">开始游戏</button>
+  </div>
+</div>
 
 <canvas id="bg-canvas"></canvas>
 
@@ -1147,7 +1173,16 @@ document.getElementById('sb-again').addEventListener('click',()=>{document.getEl
 document.getElementById('sb-next').addEventListener('click',()=>{document.getElementById('settle-mask').classList.remove('show');if(curDiff<3)setDiff(curDiff+1);});
 document.getElementById('sb-close').addEventListener('click',()=>document.getElementById('settle-mask').classList.remove('show'));
 
-newGame();
+// 预生成棋盘（隐藏在欢迎页后），点「开始游戏」才显示并计时＋播放音乐
+newGame();clearInterval(timerID);timerID=null;
+function launchGame(){
+  const mask=document.getElementById('welcome-mask');
+  if(mask.classList.contains('hide'))return;
+  mask.classList.add('hide');
+  if(!_autoStartDone){_autoStartDone=true;startMusic();}
+  newGame();
+}
+document.getElementById('welcome-start').addEventListener('click',launchGame);
 </script>
 </body>
 </html>
