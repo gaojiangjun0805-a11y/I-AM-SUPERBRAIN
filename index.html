@@ -1175,14 +1175,19 @@ document.getElementById('sb-close').addEventListener('click',()=>document.getEle
 
 // 预生成棋盘（隐藏在欢迎页后），点「开始游戏」才显示并计时＋播放音乐
 newGame();clearInterval(timerID);timerID=null;
-function launchGame(){
+let _launched=false;
+function launchGame(e){
+  if(e){e.preventDefault();e.stopPropagation();}
+  if(_launched)return;_launched=true;
   const mask=document.getElementById('welcome-mask');
-  if(mask.classList.contains('hide'))return;
   mask.classList.add('hide');
-  if(!_autoStartDone){_autoStartDone=true;startMusic();}
-  newGame();
+  try{newGame();}catch(err){}
+  try{if(!_autoStartDone){_autoStartDone=true;startMusic();}}catch(err){}
 }
-document.getElementById('welcome-start').addEventListener('click',launchGame);
+const _wsBtn=document.getElementById('welcome-start');
+_wsBtn.addEventListener('click',launchGame);
+_wsBtn.addEventListener('touchend',launchGame);
+document.getElementById('welcome-mask').addEventListener('click',launchGame);
 </script>
 </body>
 </html>
