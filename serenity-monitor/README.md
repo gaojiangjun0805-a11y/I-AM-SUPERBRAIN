@@ -61,8 +61,17 @@ GitHub 的 cron 定时任务**只会从仓库默认分支（main/master）上的
 | `TELEGRAM_CHAT_ID` | ✅ | 你的 chat id |
 | `RAPIDAPI_KEY` | ✅ | RapidAPI 密钥（账号通用） |
 | `RAPIDAPI_HOST` | 走免费 twitter-api45 时**必填** | 设为 `twitter-api45.p.rapidapi.com`；不填默认走 twitter241 |
-| `ANTHROPIC_API_KEY` | 选填 | 配了就用 Claude Haiku 给每条推文加中文总结；不配则只推英文原文 |
-| `ANTHROPIC_MODEL` | 选填 | 默认 `claude-haiku-4-5`（便宜快） |
+| `OPENAI_API_KEY` | 选填 | 配了就给每条推文加中文总结（OpenAI 兼容接口，**国内推荐 DeepSeek**）；不配则只推英文原文 |
+| `OPENAI_BASE_URL` | 选填 | 默认 `https://api.deepseek.com/v1`；通义/Kimi/智谱/OpenAI 换成各自地址 |
+| `OPENAI_MODEL` | 选填 | 默认 `deepseek-chat` |
+| `ANTHROPIC_API_KEY` | 选填 | 另一种总结方案（需国外网络+国外卡）；配了且没配 OPENAI 时启用 |
+
+> 中文总结服务商对照（都填进上面的 `OPENAI_*` 三个 secret）：
+> - **DeepSeek**（推荐，支付宝充值）：BASE_URL=`https://api.deepseek.com/v1`，MODEL=`deepseek-chat`，key 在 platform.deepseek.com
+> - **通义千问**：BASE_URL=`https://dashscope.aliyuncs.com/compatible-mode/v1`，MODEL=`qwen-plus`
+> - **Kimi**：BASE_URL=`https://api.moonshot.cn/v1`，MODEL=`moonshot-v1-8k`
+> - **智谱 GLM**：BASE_URL=`https://open.bigmodel.cn/api/paas/v4`，MODEL=`glm-4-flash`
+> - **OpenAI**：BASE_URL=`https://api.openai.com/v1`，MODEL=`gpt-4o-mini`（需在 platform.openai.com 充值，与 ChatGPT 会员不同）
 
 ## 本地测试
 

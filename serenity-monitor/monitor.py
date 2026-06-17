@@ -37,7 +37,14 @@ TWEET_COUNT = int(os.environ.get("TWEET_COUNT", "20"))
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
-# 用 Claude 把英文推文总结成中文（可选）。没配 key 就跳过总结，照常推原文。
+# 用大模型把英文推文总结成中文（可选）。没配 key 就跳过总结，照常推原文。
+# 方案一（推荐，国内可直连/支付宝充值）：OpenAI 兼容接口（DeepSeek / 通义 / Kimi / 智谱 / OpenAI 本身）
+#   配 OPENAI_API_KEY，并按所选服务商设置 OPENAI_BASE_URL 和 OPENAI_MODEL。
+# 方案二：Anthropic Claude（需国外网络+国外卡）。配 ANTHROPIC_API_KEY 即可。
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+OPENAI_BASE_URL = (os.environ.get("OPENAI_BASE_URL", "").strip() or "https://api.deepseek.com/v1")
+OPENAI_MODEL = (os.environ.get("OPENAI_MODEL", "").strip() or "deepseek-chat")
+
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 ANTHROPIC_MODEL = (os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-haiku-4-5")
 
@@ -253,42 +260,69 @@ def send_telegram(message: str):
     return False
 
 
-def summarize_zh(text):
-    """用 Claude Haiku 把推文总结成中文（他看好/推荐哪只票、逻辑是什么）。
+SUMMARY_PROMPT = (
+    "下面是 X 博主 Serenity(@aleabitoreddit，AI/半导体供应链分析) 的一条推文。"
+    "用简体中文做一段简短总结，重点说清楚：他提到或看好哪只股票(用股票代码)、"
+    "他的核心逻辑/理由是什么。如果只是闲聊、与投资无关，就回复『（非投资内容）』。"
+    "直接给总结，不要客套话，控制在 120 字以内。\n\n推文原文：\n"
+)
 
-    没配 ANTHROPIC_API_KEY 或调用失败时返回 None，调用方据此跳过中文段落。
-    """
-    if not ANTHROPIC_API_KEY:
-        return None
-    prompt = (
-        "下面是 X 博主 Serenity(@aleabitoreddit，AI/半导体供应链分析) 的一条推文。"
-        "用简体中文做一段简短总结，重点说清楚：他提到或看好哪只股票(用股票代码)、"
-        "他的核心逻辑/理由是什么。如果只是闲聊、与投资无关，就回复『（非投资内容）』。"
-        "直接给总结，不要客套话，控制在 120 字以内。\n\n推文原文：\n" + text
+
+def _summarize_openai(text):
+    """调用 OpenAI 兼容接口（DeepSeek / 通义 / Kimi / 智谱 / OpenAI）。"""
+    r = requests.post(
+        f"{OPENAI_BASE_URL.rstrip('/')}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": OPENAI_MODEL,
+            "max_tokens": 400,
+            "messages": [{"role": "user", "content": SUMMARY_PROMPT + text}],
+        },
+        timeout=30,
     )
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"].strip()
+
+
+def _summarize_anthropic(text):
+    """调用 Anthropic Claude 接口。"""
+    r = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": ANTHROPIC_MODEL,
+            "max_tokens": 400,
+            "messages": [{"role": "user", "content": SUMMARY_PROMPT + text}],
+        },
+        timeout=30,
+    )
+    r.raise_for_status()
+    data = r.json()
+    parts = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
+    return "".join(parts).strip()
+
+
+def summarize_zh(text):
+    """把推文总结成中文（他看好/推荐哪只票、逻辑是什么）。
+
+    优先用 OpenAI 兼容接口（国内可用），其次 Anthropic。
+    都没配 key 或调用失败时返回 None，调用方据此跳过中文段落。
+    """
     try:
-        r = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": ANTHROPIC_MODEL,
-                "max_tokens": 400,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=30,
-        )
-        r.raise_for_status()
-        data = r.json()
-        parts = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
-        summary = "".join(parts).strip()
-        return summary or None
-    except requests.RequestException as e:
-        print(f"[summary] Claude 总结失败: {e}", file=sys.stderr)
-        return None
+        if OPENAI_API_KEY:
+            return _summarize_openai(text) or None
+        if ANTHROPIC_API_KEY:
+            return _summarize_anthropic(text) or None
+    except (requests.RequestException, KeyError, IndexError) as e:
+        print(f"[summary] 总结失败: {e}", file=sys.stderr)
+    return None
 
 
 def build_message(tweet, tickers):
