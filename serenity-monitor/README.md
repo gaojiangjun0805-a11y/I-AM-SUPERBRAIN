@@ -37,12 +37,14 @@ GitHub 的 cron 定时任务**只会从仓库默认分支（main/master）上的
 
 ### 3. RapidAPI Key（`RAPIDAPI_KEY`）
 1. 注册 https://rapidapi.com （免费）。
-2. 订阅一个 Twitter 抓取接口，推荐 **Twitter API45**（搜索 “twitter-api45” 或 “Twitter API by Alexander”），选 **Basic / Free** 套餐。
-3. 在该接口的 “Endpoints” 页右侧 Code Snippet 里能看到 `x-rapidapi-key`，复制它作为 `RAPIDAPI_KEY`。
-4. （可选）如果你用的是别的接口，把它的 host 填到 `RAPIDAPI_HOST`；默认是 `twitter-api45.p.rapidapi.com`。
+2. 订阅 **Twttr API（host：`twitter241.p.rapidapi.com`，作者 davethebeast）**，选 **Basic / Free** 套餐。
+3. 在该接口任一端点页右侧 Code Snippet 里能看到 `X-RapidAPI-Key`，复制它作为 `RAPIDAPI_KEY`。
+   注意：RapidAPI 的 key 是**整个账号通用**的，订阅哪个接口都是同一串。
+4. （可选）默认 host 是 `twitter241.p.rapidapi.com`，无需配 `RAPIDAPI_HOST`；只有换别的接口时才需要设它。
 
-> 换数据源很简单：只要返回里有 `timeline`/`tweets` 数组、每条带 `tweet_id` 和 `text`，
-> `monitor.py` 的 `fetch_tweets()` 就能解析；结构不同时改这一个函数即可。
+> 数据源说明：代码走 twitter241 的两步流程（`/user?username=` 换 rest_id → `/user-tweets?user=` 拉时间线），
+> 再用**递归扫描**从嵌套 JSON 里提取推文，不依赖固定路径，比较抗结构变化。
+> 换接口只需改 `monitor.py` 的 `fetch_tweets()`。
 
 ## 需要配置的 Secrets 一览
 
@@ -50,8 +52,8 @@ GitHub 的 cron 定时任务**只会从仓库默认分支（main/master）上的
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | ✅ | Telegram bot token |
 | `TELEGRAM_CHAT_ID` | ✅ | 你的 chat id |
-| `RAPIDAPI_KEY` | ✅ | RapidAPI 密钥 |
-| `RAPIDAPI_HOST` | 选填 | 默认 `twitter-api45.p.rapidapi.com` |
+| `RAPIDAPI_KEY` | ✅ | RapidAPI 密钥（账号通用） |
+| `RAPIDAPI_HOST` | 选填 | 默认 `twitter241.p.rapidapi.com` |
 
 ## 本地测试
 

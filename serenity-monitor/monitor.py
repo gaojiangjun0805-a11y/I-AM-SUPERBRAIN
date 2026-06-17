@@ -28,7 +28,11 @@ import requests
 TARGET_USERNAME = os.environ.get("TARGET_USERNAME", "aleabitoreddit")
 
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "").strip()
-RAPIDAPI_HOST = os.environ.get("RAPIDAPI_HOST", "twitter-api45.p.rapidapi.com").strip()
+# 默认用 Twttr API (twitter241)。它需要两步：先用 username 换 rest_id，再拉时间线。
+# 用 `or` 兜底：GitHub 未配置该 secret 时会传入空字符串。
+RAPIDAPI_HOST = (os.environ.get("RAPIDAPI_HOST", "").strip() or "twitter241.p.rapidapi.com")
+# 一次拉多少条
+TWEET_COUNT = int(os.environ.get("TWEET_COUNT", "20"))
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
@@ -101,52 +105,106 @@ def save_state(state):
 # ---------------------------------------------------------------------------
 # 抓取推文
 # ---------------------------------------------------------------------------
-def fetch_tweets():
-    """从 RapidAPI 抓取目标用户的最新推文。
-
-    返回标准化后的列表：[{id, text, created_at, url}, ...]，按时间新->旧。
-    针对 twitter-api45 的返回结构做了适配，并做了防御性解析。
-    """
-    if not RAPIDAPI_KEY:
-        raise RuntimeError("缺少 RAPIDAPI_KEY，请在 GitHub Secrets 中配置。")
-
-    url = f"https://{RAPIDAPI_HOST}/timeline.php"
+def _rapidapi_get(path, params):
+    """对 RapidAPI 发一次 GET，带重试，返回解析后的 JSON。"""
+    url = f"https://{RAPIDAPI_HOST}{path}"
     headers = {
         "x-rapidapi-key": RAPIDAPI_KEY,
         "x-rapidapi-host": RAPIDAPI_HOST,
     }
-    params = {"screenname": TARGET_USERNAME}
+    last_err = None
+    for attempt in range(4):
+        try:
+            resp = requests.get(url, headers=headers, params=params, timeout=30)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException as e:
+            last_err = e
+            print(f"[rapidapi] {path} 第{attempt+1}次失败: {e}", file=sys.stderr)
+            time.sleep(2 ** attempt)
+    raise RuntimeError(f"RapidAPI 请求失败: {path} -> {last_err}")
 
-    resp = requests.get(url, headers=headers, params=params, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
 
-    raw = data.get("timeline") or data.get("tweets") or []
-    tweets = []
-    for item in raw:
-        tid = str(
-            item.get("tweet_id")
-            or item.get("id_str")
-            or item.get("id")
-            or ""
-        ).strip()
-        text = (
-            item.get("text")
-            or item.get("full_text")
-            or item.get("tweet")
-            or ""
+def _find_first(obj, keys):
+    """在嵌套 JSON 里递归找第一个出现的指定 key 的值。"""
+    if isinstance(obj, dict):
+        for k in keys:
+            if k in obj and isinstance(obj[k], (str, int)):
+                return obj[k]
+        for v in obj.values():
+            r = _find_first(v, keys)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for v in obj:
+            r = _find_first(v, keys)
+            if r is not None:
+                return r
+    return None
+
+
+def _extract_tweets(obj, found):
+    """递归扫描整个 JSON 树，凡是同时含 full_text/text 和 id 的对象都当作一条推文。
+
+    这样无论返回结构怎么嵌套都能稳定提取，不依赖具体路径。
+    """
+    if isinstance(obj, dict):
+        text = obj.get("full_text") or obj.get("text")
+        tid = (
+            obj.get("id_str")
+            or obj.get("rest_id")
+            or obj.get("tweet_id")
+            or obj.get("conversation_id_str")
         )
-        if not tid or not text:
-            continue
-        created = item.get("created_at") or item.get("date") or ""
-        tweets.append(
-            {
-                "id": tid,
-                "text": text,
-                "created_at": created,
-                "url": f"https://x.com/{TARGET_USERNAME}/status/{tid}",
-            }
-        )
+        # 只认那种像「推文正文对象」的：有文本、有数字 id、且有 created_at
+        if (
+            isinstance(text, str)
+            and text.strip()
+            and tid
+            and str(tid).isdigit()
+            and obj.get("created_at")
+        ):
+            tid = str(tid)
+            if tid not in found:
+                found[tid] = {
+                    "id": tid,
+                    "text": text,
+                    "created_at": obj.get("created_at", ""),
+                    "url": f"https://x.com/{TARGET_USERNAME}/status/{tid}",
+                }
+        for v in obj.values():
+            _extract_tweets(v, found)
+    elif isinstance(obj, list):
+        for v in obj:
+            _extract_tweets(v, found)
+
+
+def fetch_tweets():
+    """从 Twttr API (twitter241) 抓取目标用户最新推文。
+
+    两步：1) /user?username= 拿 rest_id；2) /user-tweets?user= 拿时间线。
+    返回标准化列表 [{id, text, created_at, url}, ...]，按 id 从新到旧。
+    """
+    if not RAPIDAPI_KEY:
+        raise RuntimeError("缺少 RAPIDAPI_KEY，请在 GitHub Secrets 中配置。")
+
+    # 第一步：username -> rest_id
+    user_data = _rapidapi_get("/user", {"username": TARGET_USERNAME})
+    rest_id = _find_first(user_data, ["rest_id"])
+    if not rest_id:
+        rest_id = _find_first(user_data, ["id_str", "id"])
+    if not rest_id:
+        raise RuntimeError(f"没能从 /user 拿到 rest_id，返回片段: {str(user_data)[:300]}")
+    rest_id = str(rest_id)
+    print(f"[fetch] {TARGET_USERNAME} 的 rest_id = {rest_id}")
+
+    # 第二步：拉时间线
+    tl = _rapidapi_get("/user-tweets", {"user": rest_id, "count": str(TWEET_COUNT)})
+
+    found = {}
+    _extract_tweets(tl, found)
+    # id 越大越新，按 id 数值降序
+    tweets = sorted(found.values(), key=lambda t: int(t["id"]), reverse=True)
     return tweets
 
 
