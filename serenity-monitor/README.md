@@ -61,6 +61,8 @@ GitHub 的 cron 定时任务**只会从仓库默认分支（main/master）上的
 | `TELEGRAM_CHAT_ID` | ✅ | 你的 chat id |
 | `RAPIDAPI_KEY` | ✅ | RapidAPI 密钥（账号通用） |
 | `RAPIDAPI_HOST` | 走免费 twitter-api45 时**必填** | 设为 `twitter-api45.p.rapidapi.com`；不填默认走 twitter241 |
+| `ANTHROPIC_API_KEY` | 选填 | 配了就用 Claude Haiku 给每条推文加中文总结；不配则只推英文原文 |
+| `ANTHROPIC_MODEL` | 选填 | 默认 `claude-haiku-4-5`（便宜快） |
 
 ## 本地测试
 

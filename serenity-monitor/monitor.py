@@ -37,6 +37,10 @@ TWEET_COUNT = int(os.environ.get("TWEET_COUNT", "20"))
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
+# 用 Claude 把英文推文总结成中文（可选）。没配 key 就跳过总结，照常推原文。
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+ANTHROPIC_MODEL = (os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-haiku-4-5")
+
 # 一次最多通知多少条，避免首次运行或长时间未跑时刷屏
 MAX_ALERTS_PER_RUN = int(os.environ.get("MAX_ALERTS_PER_RUN", "10"))
 
@@ -249,16 +253,61 @@ def send_telegram(message: str):
     return False
 
 
+def summarize_zh(text):
+    """用 Claude Haiku 把推文总结成中文（他看好/推荐哪只票、逻辑是什么）。
+
+    没配 ANTHROPIC_API_KEY 或调用失败时返回 None，调用方据此跳过中文段落。
+    """
+    if not ANTHROPIC_API_KEY:
+        return None
+    prompt = (
+        "下面是 X 博主 Serenity(@aleabitoreddit，AI/半导体供应链分析) 的一条推文。"
+        "用简体中文做一段简短总结，重点说清楚：他提到或看好哪只股票(用股票代码)、"
+        "他的核心逻辑/理由是什么。如果只是闲聊、与投资无关，就回复『（非投资内容）』。"
+        "直接给总结，不要客套话，控制在 120 字以内。\n\n推文原文：\n" + text
+    )
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": ANTHROPIC_MODEL,
+                "max_tokens": 400,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()
+        parts = [b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"]
+        summary = "".join(parts).strip()
+        return summary or None
+    except requests.RequestException as e:
+        print(f"[summary] Claude 总结失败: {e}", file=sys.stderr)
+        return None
+
+
 def build_message(tweet, tickers):
     tickers_line = "  ".join(tickers) if tickers else "（关键词命中，无明确代码）"
-    text = tweet["text"].strip()
-    # Telegram HTML 模式需要转义
-    for a, b in (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;")):
-        text = text.replace(a, b)
+
+    def esc(s):
+        for a, b in (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;")):
+            s = s.replace(a, b)
+        return s
+
+    text = esc(tweet["text"].strip())
+    summary = summarize_zh(tweet["text"])
+    summary_block = f"<b>中文总结：</b>{esc(summary)}\n\n" if summary else ""
+
     return (
         f"📈 <b>Serenity (@{TARGET_USERNAME}) 提到了股票</b>\n\n"
         f"<b>涉及标的：</b>{tickers_line}\n\n"
-        f"{text}\n\n"
+        f"{summary_block}"
+        f"<b>原文：</b>{text}\n\n"
         f"🔗 {tweet['url']}"
     )
 
