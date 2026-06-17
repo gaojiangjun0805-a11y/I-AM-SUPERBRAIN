@@ -1,0 +1,54 @@
+name: Serenity 股票推文监控
+
+# 每 15 分钟跑一次（GitHub cron 最小间隔约 5 分钟，实际可能略有延迟）。
+# 也可以在 Actions 页面手动触发（workflow_dispatch）。
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+# 允许工作流把去重状态文件 commit 回仓库
+permissions:
+  contents: write
+
+# 避免多次运行同时写状态文件
+concurrency:
+  group: serenity-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r serenity-monitor/requirements.txt
+
+      - name: Run monitor
+        env:
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          RAPIDAPI_HOST: ${{ secrets.RAPIDAPI_HOST }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TARGET_USERNAME: aleabitoreddit
+        run: python serenity-monitor/monitor.py
+
+      - name: Persist state
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- serenity-monitor/state/last_seen.json; then
+            git add serenity-monitor/state/last_seen.json
+            git commit -m "chore: update serenity monitor state [skip ci]"
+            git push
+          else
+            echo "状态无变化，无需提交。"
+          fi
