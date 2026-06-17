@@ -35,16 +35,23 @@ GitHub 的 cron 定时任务**只会从仓库默认分支（main/master）上的
 2. 浏览器打开：`https://api.telegram.org/bot<你的TOKEN>/getUpdates`
 3. 在返回的 JSON 里找到 `"chat":{"id":...}`，那个数字就是 `TELEGRAM_CHAT_ID`。
 
-### 3. RapidAPI Key（`RAPIDAPI_KEY`）
-1. 注册 https://rapidapi.com （免费）。
-2. 订阅 **Twttr API（host：`twitter241.p.rapidapi.com`，作者 davethebeast）**，选 **Basic / Free** 套餐。
-3. 在该接口任一端点页右侧 Code Snippet 里能看到 `X-RapidAPI-Key`，复制它作为 `RAPIDAPI_KEY`。
-   注意：RapidAPI 的 key 是**整个账号通用**的，订阅哪个接口都是同一串。
-4. （可选）默认 host 是 `twitter241.p.rapidapi.com`，无需配 `RAPIDAPI_HOST`；只有换别的接口时才需要设它。
+### 3. RapidAPI Key（`RAPIDAPI_KEY`）+ 选接口
+注册 https://rapidapi.com （免费），然后选一个 Twitter 接口订阅。代码**同时兼容两类**：
 
-> 数据源说明：代码走 twitter241 的两步流程（`/user?username=` 换 rest_id → `/user-tweets?user=` 拉时间线），
-> 再用**递归扫描**从嵌套 JSON 里提取推文，不依赖固定路径，比较抗结构变化。
-> 换接口只需改 `monitor.py` 的 `fetch_tweets()`。
+| 接口 | host | 免费档 | 说明 |
+|---|---|---|---|
+| **twitter-api45**（作者 alexanderxbx，**推荐免费**） | `twitter-api45.p.rapidapi.com` | 有 $0 档 | 一步用用户名直接拉推文，最省额度 |
+| Twttr API / twitter241（davethebeast） | `twitter241.p.rapidapi.com` | Basic $1/月 | 两步：先换 rest_id 再拉时间线 |
+
+- 走**免费**就订阅 **twitter-api45** 的 $0 档，并把 `RAPIDAPI_HOST` 设为 `twitter-api45.p.rapidapi.com`。
+- 订阅后在接口端点页右侧 Code Snippet 里复制 `X-RapidAPI-Key`，作为 `RAPIDAPI_KEY`。
+  注意：RapidAPI 的 key 是**整个账号通用**的，订阅哪个接口都是同一串。
+
+> ⚠️ 免费档额度低（常见 100~500 次/月），所以 workflow 默认只在美股活跃时段每 30 分钟查一次。
+> 务必按你套餐的「Requests / Month」上限调整 `.github/workflows/serenity-monitor.yml` 里的 cron（文件里有说明）。
+>
+> 实现说明：代码用**递归扫描**从返回 JSON 里提取推文，不依赖固定路径，对两类接口都适用；
+> 换别的接口改 `monitor.py` 的 `fetch_tweets()` 即可。
 
 ## 需要配置的 Secrets 一览
 
@@ -53,7 +60,7 @@ GitHub 的 cron 定时任务**只会从仓库默认分支（main/master）上的
 | `TELEGRAM_BOT_TOKEN` | ✅ | Telegram bot token |
 | `TELEGRAM_CHAT_ID` | ✅ | 你的 chat id |
 | `RAPIDAPI_KEY` | ✅ | RapidAPI 密钥（账号通用） |
-| `RAPIDAPI_HOST` | 选填 | 默认 `twitter241.p.rapidapi.com` |
+| `RAPIDAPI_HOST` | 走免费 twitter-api45 时**必填** | 设为 `twitter-api45.p.rapidapi.com`；不填默认走 twitter241 |
 
 ## 本地测试
 

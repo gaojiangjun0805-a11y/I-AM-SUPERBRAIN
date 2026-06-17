@@ -179,27 +179,41 @@ def _extract_tweets(obj, found):
             _extract_tweets(v, found)
 
 
-def fetch_tweets():
-    """从 Twttr API (twitter241) 抓取目标用户最新推文。
+def fetch_tweets(state=None):
+    """抓取目标用户最新推文，兼容两类 RapidAPI 接口。
 
-    两步：1) /user?username= 拿 rest_id；2) /user-tweets?user= 拿时间线。
-    返回标准化列表 [{id, text, created_at, url}, ...]，按 id 从新到旧。
+    - twitter241 (host 含 "241")：两步，先 /user?username= 拿 rest_id（缓存复用以省额度），
+      再 /user-tweets?user= 拉时间线。
+    - 其它（twitter-api45 等）：一步 /timeline.php?screenname= 直接拉。
+
+    都用递归提取，返回 [{id, text, created_at, url}, ...]，按 id 从新到旧。
     """
     if not RAPIDAPI_KEY:
         raise RuntimeError("缺少 RAPIDAPI_KEY，请在 GitHub Secrets 中配置。")
 
-    # 第一步：username -> rest_id
-    user_data = _rapidapi_get("/user", {"username": TARGET_USERNAME})
-    rest_id = _find_first(user_data, ["rest_id"])
-    if not rest_id:
-        rest_id = _find_first(user_data, ["id_str", "id"])
-    if not rest_id:
-        raise RuntimeError(f"没能从 /user 拿到 rest_id，返回片段: {str(user_data)[:300]}")
-    rest_id = str(rest_id)
-    print(f"[fetch] {TARGET_USERNAME} 的 rest_id = {rest_id}")
+    state = state if state is not None else {}
 
-    # 第二步：拉时间线
-    tl = _rapidapi_get("/user-tweets", {"user": rest_id, "count": str(TWEET_COUNT)})
+    if "241" in RAPIDAPI_HOST:
+        # rest_id 永不变，缓存下来后续每次只需 1 次请求，省额度
+        rest_id = state.get("rest_id")
+        if not rest_id:
+            user_data = _rapidapi_get("/user", {"username": TARGET_USERNAME})
+            rest_id = _find_first(user_data, ["rest_id"]) or _find_first(
+                user_data, ["id_str", "id"]
+            )
+            if not rest_id:
+                raise RuntimeError(
+                    f"没能从 /user 拿到 rest_id，返回片段: {str(user_data)[:300]}"
+                )
+            rest_id = str(rest_id)
+            state["rest_id"] = rest_id
+            print(f"[fetch] 取得并缓存 rest_id = {rest_id}")
+        else:
+            print(f"[fetch] 复用缓存 rest_id = {rest_id}")
+        tl = _rapidapi_get("/user-tweets", {"user": rest_id, "count": str(TWEET_COUNT)})
+    else:
+        # twitter-api45 等：一步直接用 screenname 拉时间线
+        tl = _rapidapi_get("/timeline.php", {"screenname": TARGET_USERNAME})
 
     found = {}
     _extract_tweets(tl, found)
@@ -258,7 +272,7 @@ def main():
     first_run = not seen  # 第一次运行（无历史）
 
     try:
-        tweets = fetch_tweets()
+        tweets = fetch_tweets(state)
     except Exception as e:
         print(f"[fetch] 抓取失败: {e}", file=sys.stderr)
         sys.exit(1)
