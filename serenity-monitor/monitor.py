@@ -279,7 +279,29 @@ def main():
 
     print(f"[fetch] 抓到 {len(tweets)} 条推文")
 
-    # 找出未处理过的、且与股票相关的推文。时间新->旧，先翻成旧->新方便按序通知。
+    # 测试模式：手动触发时验证 Telegram 通不通，并把最近一条涉股推文当样例发出来。
+    if os.environ.get("SEND_TEST", "").strip().lower() in ("1", "true", "yes"):
+        sample = None
+        for tw in tweets:  # tweets 已按新->旧排序
+            related, tickers = is_stock_related(tw["text"])
+            if related:
+                sample = (tw, tickers)
+                break
+        if sample:
+            tw, tickers = sample
+            head = "✅ <b>测试成功：监控运行正常</b>\n下面是 Serenity 最近一条涉股推文（样例）：\n\n"
+            body = build_message(tw, tickers)
+            ok = send_telegram(head + body)
+        else:
+            ok = send_telegram(
+                "✅ <b>测试成功：监控运行正常</b>\n"
+                f"已能抓到 @{TARGET_USERNAME} 的推文（共 {len(tweets)} 条），"
+                "最近暂无涉股内容。有新涉股推文会第一时间通知你。"
+            )
+        print(f"[test] Telegram 测试发送 {'成功' if ok else '失败'}")
+        return
+
+
     new_relevant = []
     for tw in reversed(tweets):
         if tw["id"] in seen:
