@@ -57,8 +57,13 @@ GitHub 的 cron 定时任务**只会从仓库默认分支（main/master）上的
 
 | Secret 名 | 必填 | 说明 |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | ✅ | Telegram bot token |
-| `TELEGRAM_CHAT_ID` | ✅ | 你的 chat id |
+| `WECOM_WEBHOOK_KEY` | 通知二选一 | 企业微信群机器人 webhook 的 key（国内推荐，免费稳定） |
+| `TELEGRAM_BOT_TOKEN` | 通知二选一 | Telegram bot token（国内需梯子，可能收不到） |
+| `TELEGRAM_CHAT_ID` | 配 Telegram 时 | 你的 chat id |
+
+> 通知渠道：企业微信 / Telegram **配哪个就发哪个，都配则都发**。国内推荐企业微信。
+> 企业微信配置：在企业微信里建一个群 → 群设置 → 群机器人 → 添加 → 复制 Webhook 地址，
+> 把地址里 `key=` 后面那一串填到 `WECOM_WEBHOOK_KEY`（或把整条地址填到 `WECOM_WEBHOOK_URL`）。
 | `RAPIDAPI_KEY` | ✅ | RapidAPI 密钥（账号通用） |
 | `RAPIDAPI_HOST` | 走免费 twitter-api45 时**必填** | 设为 `twitter-api45.p.rapidapi.com`；不填默认走 twitter241 |
 | `OPENAI_API_KEY` | 选填 | 配了就给每条推文加中文总结（OpenAI 兼容接口，**国内推荐 DeepSeek**）；不配则只推英文原文 |

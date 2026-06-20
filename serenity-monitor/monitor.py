@@ -37,6 +37,12 @@ TWEET_COUNT = int(os.environ.get("TWEET_COUNT", "20"))
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
+# 企业微信群机器人（国内可用，免费）。填 webhook 的 key 或完整 url 任一即可。
+WECOM_KEY = os.environ.get("WECOM_WEBHOOK_KEY", "").strip()
+WECOM_URL = os.environ.get("WECOM_WEBHOOK_URL", "").strip()
+if not WECOM_URL and WECOM_KEY:
+    WECOM_URL = f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={WECOM_KEY}"
+
 # 用大模型把英文推文总结成中文（可选）。没配 key 就跳过总结，照常推原文。
 # 方案一（推荐，国内可直连/支付宝充值）：OpenAI 兼容接口（DeepSeek / 通义 / Kimi / 智谱 / OpenAI 本身）
 #   配 OPENAI_API_KEY，并按所选服务商设置 OPENAI_BASE_URL 和 OPENAI_MODEL。
@@ -260,6 +266,39 @@ def send_telegram(message: str):
     return False
 
 
+def send_wecom(text: str):
+    """发到企业微信群机器人（纯文本）。"""
+    if not WECOM_URL:
+        return False
+    for attempt in range(4):
+        try:
+            r = requests.post(
+                WECOM_URL,
+                json={"msgtype": "text", "text": {"content": text}},
+                timeout=30,
+            )
+            if r.status_code == 200 and r.json().get("errcode") == 0:
+                return True
+            print(f"[wecom] 发送失败: {r.status_code} {r.text}", file=sys.stderr)
+        except (requests.RequestException, ValueError) as e:
+            print(f"[wecom] 网络错误: {e}", file=sys.stderr)
+        time.sleep(2 ** attempt)
+    return False
+
+
+def notify_all(tg_html: str, plain_text: str):
+    """发到所有已配置的渠道（企业微信 + Telegram）。任一成功即视为成功。"""
+    results = []
+    if WECOM_URL:
+        results.append(send_wecom(plain_text))
+    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
+        results.append(send_telegram(tg_html))
+    if not results:
+        print("[notify] 未配置任何通知渠道（企业微信/Telegram）", file=sys.stderr)
+        return False
+    return any(results)
+
+
 SUMMARY_PROMPT = (
     "下面是 X 博主 Serenity(@aleabitoreddit，AI/半导体供应链分析) 的一条推文。"
     "用简体中文做一段简短总结，重点说清楚：他提到或看好哪只股票(用股票代码)、"
@@ -325,25 +364,37 @@ def summarize_zh(text):
     return None
 
 
-def build_message(tweet, tickers):
+def build_messages(tweet, tickers):
+    """生成两种格式：(Telegram 用 HTML, 企业微信用纯文本)。中文总结只算一次。"""
     tickers_line = "  ".join(tickers) if tickers else "（关键词命中，无明确代码）"
+    summary = summarize_zh(tweet["text"])
+    raw = tweet["text"].strip()
 
+    # 企业微信：纯文本
+    plain_summary = f"中文总结：{summary}\n\n" if summary else ""
+    plain = (
+        f"📈 Serenity (@{TARGET_USERNAME}) 提到了股票\n\n"
+        f"涉及标的：{tickers_line}\n\n"
+        f"{plain_summary}"
+        f"原文：{raw}\n\n"
+        f"🔗 {tweet['url']}"
+    )
+
+    # Telegram：HTML（需转义）
     def esc(s):
         for a, b in (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;")):
             s = s.replace(a, b)
         return s
 
-    text = esc(tweet["text"].strip())
-    summary = summarize_zh(tweet["text"])
-    summary_block = f"<b>中文总结：</b>{esc(summary)}\n\n" if summary else ""
-
-    return (
+    tg_summary = f"<b>中文总结：</b>{esc(summary)}\n\n" if summary else ""
+    tg = (
         f"📈 <b>Serenity (@{TARGET_USERNAME}) 提到了股票</b>\n\n"
         f"<b>涉及标的：</b>{tickers_line}\n\n"
-        f"{summary_block}"
-        f"<b>原文：</b>{text}\n\n"
+        f"{tg_summary}"
+        f"<b>原文：</b>{esc(raw)}\n\n"
         f"🔗 {tweet['url']}"
     )
+    return tg, plain
 
 
 # ---------------------------------------------------------------------------
@@ -372,16 +423,20 @@ def main():
                 break
         if sample:
             tw, tickers = sample
-            head = "✅ <b>测试成功：监控运行正常</b>\n下面是 Serenity 最近一条涉股推文（样例）：\n\n"
-            body = build_message(tw, tickers)
-            ok = send_telegram(head + body)
+            tg, plain = build_messages(tw, tickers)
+            head_tg = "✅ <b>测试成功：监控运行正常</b>\n下面是 Serenity 最近一条涉股推文（样例）：\n\n"
+            head_plain = "✅ 测试成功：监控运行正常\n下面是 Serenity 最近一条涉股推文（样例）：\n\n"
+            ok = notify_all(head_tg + tg, head_plain + plain)
         else:
-            ok = send_telegram(
-                "✅ <b>测试成功：监控运行正常</b>\n"
+            tip = (
                 f"已能抓到 @{TARGET_USERNAME} 的推文（共 {len(tweets)} 条），"
                 "最近暂无涉股内容。有新涉股推文会第一时间通知你。"
             )
-        print(f"[test] Telegram 测试发送 {'成功' if ok else '失败'}")
+            ok = notify_all(
+                "✅ <b>测试成功：监控运行正常</b>\n" + tip,
+                "✅ 测试成功：监控运行正常\n" + tip,
+            )
+        print(f"[test] 测试推送 {'成功' if ok else '失败'}")
         return
 
 
@@ -415,8 +470,8 @@ def main():
 
     sent = 0
     for tw, tickers in new_relevant[:MAX_ALERTS_PER_RUN]:
-        msg = build_message(tw, tickers)
-        if send_telegram(msg):
+        tg, plain = build_messages(tw, tickers)
+        if notify_all(tg, plain):
             sent += 1
             print(f"[notify] 已通知: {tw['id']} {tickers}")
         else:
