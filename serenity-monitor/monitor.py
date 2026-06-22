@@ -43,6 +43,10 @@ WECOM_URL = os.environ.get("WECOM_WEBHOOK_URL", "").strip()
 if not WECOM_URL and WECOM_KEY:
     WECOM_URL = f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={WECOM_KEY}"
 
+# Bark（iPhone 推送，国内直连、秒到、免费）。装 Bark App，复制它给的 key 填进来。
+BARK_KEY = os.environ.get("BARK_KEY", "").strip()
+BARK_SERVER = (os.environ.get("BARK_SERVER", "").strip() or "https://api.day.app").rstrip("/")
+
 # 用大模型把英文推文总结成中文（可选）。没配 key 就跳过总结，照常推原文。
 # 方案一（推荐，国内可直连/支付宝充值）：OpenAI 兼容接口（DeepSeek / 通义 / Kimi / 智谱 / OpenAI 本身）
 #   配 OPENAI_API_KEY，并按所选服务商设置 OPENAI_BASE_URL 和 OPENAI_MODEL。
@@ -286,17 +290,42 @@ def send_wecom(text: str):
     return False
 
 
-def notify_all(tg_html: str, plain_text: str):
-    """发到所有已配置的渠道（企业微信 + Telegram）。任一成功即视为成功。"""
+def notify_all(tg_html: str, plain_text: str, bark_url: str = None):
+    """发到所有已配置的渠道（Bark + 企业微信 + Telegram）。任一成功即视为成功。"""
     results = []
+    if BARK_KEY:
+        # 标题取首行，正文取其余，点通知可跳转推文链接
+        lines = plain_text.split("\n", 1)
+        title = lines[0].strip() or "Serenity 股票提醒"
+        body = lines[1].strip() if len(lines) > 1 else plain_text
+        results.append(send_bark(title, body, bark_url))
     if WECOM_URL:
         results.append(send_wecom(plain_text))
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         results.append(send_telegram(tg_html))
     if not results:
-        print("[notify] 未配置任何通知渠道（企业微信/Telegram）", file=sys.stderr)
+        print("[notify] 未配置任何通知渠道（Bark/企业微信/Telegram）", file=sys.stderr)
         return False
     return any(results)
+
+
+def send_bark(title: str, body: str, url: str = None):
+    """发到 Bark（iPhone 推送）。"""
+    if not BARK_KEY:
+        return False
+    payload = {"title": title, "body": body, "group": "Serenity"}
+    if url:
+        payload["url"] = url
+    for attempt in range(4):
+        try:
+            r = requests.post(f"{BARK_SERVER}/{BARK_KEY}", json=payload, timeout=30)
+            if r.status_code == 200 and r.json().get("code") == 200:
+                return True
+            print(f"[bark] 发送失败: {r.status_code} {r.text}", file=sys.stderr)
+        except (requests.RequestException, ValueError) as e:
+            print(f"[bark] 网络错误: {e}", file=sys.stderr)
+        time.sleep(2 ** attempt)
+    return False
 
 
 SUMMARY_PROMPT = (
@@ -471,7 +500,7 @@ def main():
     sent = 0
     for tw, tickers in new_relevant[:MAX_ALERTS_PER_RUN]:
         tg, plain = build_messages(tw, tickers)
-        if notify_all(tg, plain):
+        if notify_all(tg, plain, bark_url=tw["url"]):
             sent += 1
             print(f"[notify] 已通知: {tw['id']} {tickers}")
         else:
