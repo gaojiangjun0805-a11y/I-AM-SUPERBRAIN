@@ -47,6 +47,9 @@ if not WECOM_URL and WECOM_KEY:
 BARK_KEY = os.environ.get("BARK_KEY", "").strip()
 BARK_SERVER = (os.environ.get("BARK_SERVER", "").strip() or "https://api.day.app").rstrip("/")
 
+# PushPlus（推送到你的个人微信，免费，无需企业微信/梯子）。pushplus.plus 微信扫码登录拿 token。
+PUSHPLUS_TOKEN = os.environ.get("PUSHPLUS_TOKEN", "").strip()
+
 # 用大模型把英文推文总结成中文（可选）。没配 key 就跳过总结，照常推原文。
 # 方案一（推荐，国内可直连/支付宝充值）：OpenAI 兼容接口（DeepSeek / 通义 / Kimi / 智谱 / OpenAI 本身）
 #   配 OPENAI_API_KEY，并按所选服务商设置 OPENAI_BASE_URL 和 OPENAI_MODEL。
@@ -290,9 +293,37 @@ def send_wecom(text: str):
     return False
 
 
+def send_pushplus(title: str, plain_text: str):
+    """推送到个人微信（PushPlus）。"""
+    if not PUSHPLUS_TOKEN:
+        return False
+    # html 模板：转义后把换行变 <br>
+    html = plain_text
+    for a, b in (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;")):
+        html = html.replace(a, b)
+    html = html.replace("\n", "<br>")
+    for attempt in range(4):
+        try:
+            r = requests.post(
+                "https://www.pushplus.plus/send",
+                json={"token": PUSHPLUS_TOKEN, "title": title, "content": html, "template": "html"},
+                timeout=30,
+            )
+            if r.status_code == 200 and r.json().get("code") == 200:
+                return True
+            print(f"[pushplus] 发送失败: {r.status_code} {r.text}", file=sys.stderr)
+        except (requests.RequestException, ValueError) as e:
+            print(f"[pushplus] 网络错误: {e}", file=sys.stderr)
+        time.sleep(2 ** attempt)
+    return False
+
+
 def notify_all(tg_html: str, plain_text: str, bark_url: str = None):
-    """发到所有已配置的渠道（Bark + 企业微信 + Telegram）。任一成功即视为成功。"""
+    """发到所有已配置的渠道（微信PushPlus + Bark + 企业微信 + Telegram）。任一成功即视为成功。"""
     results = []
+    title = plain_text.split("\n", 1)[0].strip() or "Serenity 股票提醒"
+    if PUSHPLUS_TOKEN:
+        results.append(send_pushplus(title, plain_text))
     if BARK_KEY:
         # 标题取首行，正文取其余，点通知可跳转推文链接
         lines = plain_text.split("\n", 1)
