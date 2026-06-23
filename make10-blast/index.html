@@ -67,8 +67,8 @@ canvas { display:block; border-radius:10px; box-shadow:0 8px 28px #00000044, ins
 <div id="wrap">
   <div id="titlebar">以为很简单 结果尴尬了</div>
   <div id="hud">
+    <span class="pill">🏆 第 <b id="hLevel">1</b> 关</span>
     <span class="pill">⏱ <b id="hTime">0.0s</b></span>
-    <span class="pill">💥 消除 <b id="hPairs">0</b></span>
     <span class="pill">🔒 未开 <b id="hLeft">0</b></span>
   </div>
   <canvas id="board"></canvas>
@@ -98,10 +98,19 @@ canvas { display:block; border-radius:10px; box-shadow:0 8px 28px #00000044, ins
 'use strict';
 
 // ───────────────────────── 配置 ─────────────────────────
-const COLS = 8, ROWS = 11;
+let COLS = 5, ROWS = 5;       // 每关动态变化
+let level = 1;
 const ctx = document.getElementById('board').getContext('2d');
 const canvas = document.getElementById('board');
 let CELL = 44, PAD = 4;       // 像素，运行时按屏幕计算
+
+// 关卡尺寸：第1关 5×5，第2关 5×6，第3关 6×6，第4关 6×7…交替 +1，上限 18×18
+function setLevelDims(lv){
+  let small = 5 + Math.floor((lv-1)/2);
+  let big   = 5 + Math.floor(lv/2);
+  COLS = Math.min(18, small);   // 列数（较窄）
+  ROWS = Math.min(18, big);     // 行数（较高，竖屏）
+}
 
 // 单元格状态： opened(是否翻开)  num(0=空, 1..9=数字)
 let grid = [];                // grid[r][c]
@@ -119,7 +128,7 @@ function layout(){
   const availH = window.innerHeight - 200;
   const cellByW = Math.floor(wrapW / COLS);
   const cellByH = Math.floor(availH / ROWS);
-  CELL = Math.max(26, Math.min(cellByW, cellByH));
+  CELL = Math.max(16, Math.min(cellByW, cellByH));
   PAD = Math.max(3, Math.round(CELL*0.08));
   const w = CELL*COLS, h = CELL*ROWS;
   const DPR = Math.min(window.devicePixelRatio||1, 2);
@@ -271,31 +280,35 @@ function hasAnyMove(){
 }
 
 function checkEnd(){
-  if(coveredCount()===0){ winGame(); return; }
+  if(coveredCount()===0){ levelClear(); return; }
   // 若没有任何可消除组合、但仍有盖住的格子 → 死局
   if(!hasAnyMove()){
     setTimeout(()=>{ if(running && !hasAnyMove() && coveredCount()>0) stuck(); }, 350);
   }
 }
 
-function winGame(){
-  running=false; won=true;
+function levelClear(){
+  running=false;
   const t=(elapsed/1000).toFixed(1);
-  showOverlay(`<h1>挑战成功！</h1>
-    <div class="tag">原来你是真的厉害 👑</div>
-    <div class="sub">全盘翻开！用时 <b>${t}s</b> · 消除 <b>${pairs}</b> 组<br>${pairs>=30?'手速惊人！':'稳！'}</div>
-    <button id="btnStart">再 来 一 局</button>
-    <div class="rules">把成绩发评论区，看谁能更快通关 😎</div>`);
-  bindStart();
+  const atMax = (COLS>=18 && ROWS>=18);
+  const nextDim = (()=>{ setLevelDims(level+1); const d=COLS+'×'+ROWS; setLevelDims(level); return d; })();
+  showOverlay(`<h1>第 ${level} 关 通关！</h1>
+    <div class="tag">${level<2?'以为很简单？':'越来越大了 😈'} ${COLS}×${ROWS} 清空！</div>
+    <div class="sub">用时 <b>${t}s</b> · 消除 <b>${pairs}</b> 组<br>${atMax?'已达最大盘面 18×18，继续挑战！':'下一关盘面 '+nextDim+'，更难哦'}</div>
+    <button id="btnNext">下一关 ▶</button>
+    <div class="rules">盘面会一关比一关大：5×5 → 5×6 → 6×6 …一直到 18×18。</div>`);
+  const b=document.getElementById('btnNext');
+  if(b) b.addEventListener('click', ()=>{ level++; startLevel(); });
 }
 function stuck(){
   running=false;
   showOverlay(`<h1>卡住了…</h1>
     <div class="tag">「以为很简单 结果尴尬了」😅</div>
-    <div class="sub">场上已经没有能凑成 10 的可连数字了。<br>试试「打乱」重排，或者重开一局。</div>
-    <button id="btnStart">🔁 重 开</button>
+    <div class="sub">第 ${level} 关场上已经没有能凑成 10 的可连数字了。<br>试试「打乱」重排，或者重开本关。</div>
+    <button id="btnRetry">🔁 重 开 本 关</button>
     <div class="rules">提示：尽量先消除被夹住的数字，给后面留出通路。</div>`);
-  bindStart();
+  const b=document.getElementById('btnRetry');
+  if(b) b.addEventListener('click', ()=> startLevel());
 }
 
 // ───────────────────────── 打乱（救场） ─────────────────────────
@@ -348,7 +361,7 @@ canvas.addEventListener('touchend', e=>{ e.preventDefault(); onUp(e); }, {passiv
 
 // ───────────────────────── HUD / 按钮 ─────────────────────────
 function updateHud(){
-  document.getElementById('hPairs').textContent=pairs;
+  document.getElementById('hLevel').textContent=level;
   document.getElementById('hLeft').textContent=coveredCount();
 }
 document.getElementById('btnHint').addEventListener('click', ()=>{
@@ -356,7 +369,7 @@ document.getElementById('btnHint').addEventListener('click', ()=>{
   if(m) hintFx={a:m.a,b:m.b,t:120};   // 没有可消组合时什么也不做（死局检测会接管）
 });
 document.getElementById('btnShuffle').addEventListener('click', ()=>{ if(running) shuffleOpen(); });
-document.getElementById('btnNew').addEventListener('click', ()=> startGame());
+document.getElementById('btnNew').addEventListener('click', ()=> startLevel());   // 重开本关
 
 // ───────────────────────── overlay ─────────────────────────
 const overlay=document.getElementById('overlay');
@@ -364,8 +377,9 @@ function showOverlay(html){ overlay.innerHTML=html; overlay.classList.remove('hi
 function hideOverlay(){ overlay.classList.add('hidden'); }
 function bindStart(){ const b=document.getElementById('btnStart'); if(b) b.addEventListener('click', startGame); }
 
-function startGame(){
-  layout(); genBoard();
+function startGame(){ level=1; startLevel(); }     // 从第 1 关重新开始
+function startLevel(){
+  setLevelDims(level); layout(); genBoard();
   pairs=0; selected=null; particles=[]; flash=[]; pathFx=null; hintFx=null;
   won=false; running=true; startTime=performance.now(); elapsed=0;
   updateHud(); hideOverlay();
@@ -453,7 +467,7 @@ function loop(now){
 }
 
 // ───────────────────────── 启动 ─────────────────────────
-layout(); genBoard(); updateHud();
+setLevelDims(level); layout(); genBoard(); updateHud();
 bindStart();
 requestAnimationFrame(loop);
 
