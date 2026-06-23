@@ -76,19 +76,20 @@ canvas { display:block; border-radius:10px; box-shadow:0 8px 28px #00000044, ins
     <button id="btnHint">💡 提示</button>
     <button id="btnShuffle">🔀 打乱</button>
     <button id="btnNew">🔁 重开</button>
+    <button id="btnSound">🔊</button>
   </div>
-  <div class="tip">点两个相加=10的数字连接它们；中间不能被别的数字挡住。消除会炸开周围 8 格，露出新数字。把所有格子全部翻开就赢！</div>
+  <div class="tip">按住数字拖到另一个相加=10的数字上 → 在落点爆炸、炸开它周围 8 格。往你想翻开的方向拖！把所有格子全翻开就通关。</div>
 
   <div id="overlay">
     <h1>凑十爆破</h1>
     <div class="tag">点开了以为很简单…</div>
-    <div class="sub">把相加等于 10 的两个数字连起来，引爆它们、炸开周围的格子。<br>最后把整个盘面全部翻开 = 挑战成功。</div>
+    <div class="sub">把一个数字 <b>拖到</b> 另一个相加等于 10 的数字上，在落点处引爆，炸开周围的格子。<br>最后把整个盘面全部翻开 = 挑战成功。</div>
     <button id="btnStart">开 始 挑 战</button>
     <div class="rules">
-      ① 选两个 <b>相加 = 10</b> 的数字（如 5+5、9+1、3+7）。<br>
-      ② 连接路径要畅通：中间被别的数字挡住就连不上（连连看规则，最多拐两个弯）。<br>
-      ③ 引爆后炸开它俩周围 8 格，露出新数字。<br>
-      ④ 把所有盖住的格子全部翻开就通关！
+      ① 按住一个数字，<b>拖到</b>另一个 <b>相加 = 10</b> 的数字上（5+5、9+1、3+7…）。<br>
+      ② 只要中途有空格能滑过去就行；被别的数字/盖住的格子挡死就拖不过去。<br>
+      ③ 爆炸发生在<b>落点（被拖到的那个数字）</b>，只炸开它周围 8 格——<b>所以往想翻开的方向拖！</b><br>
+      ④ 把所有盖住的格子全部翻开就通关，盘面会一关比一关大。
     </div>
   </div>
 </div>
@@ -114,12 +115,45 @@ function setLevelDims(lv){
 
 // 单元格状态： opened(是否翻开)  num(0=空, 1..9=数字)
 let grid = [];                // grid[r][c]
-let selected = null;          // {r,c}
+let selected = null;          // 兼容字段（拖拽模式下恒为 null）
+let drag = null;              // {a:{r,c}, x, y, hover:{r,c}|null, valid}
 let pairs = 0, startTime = 0, elapsed = 0, running = false, won = false;
 let particles = [];
 let flash = [];               // {r,c,color,t} 红色错误闪烁 / 翻开高亮
-let pathFx = null;            // {pts:[{r,c}], t} 成功连接的连线动画
+let pathFx = null;            // {a,b,t} 成功爆破的连线动画
 let hintFx = null;            // {a,b,t}
+
+// ───────────────────────── 音效（Web Audio，仅音效不放音乐） ─────────────────────────
+let actx=null, muted=false;
+function resumeAudio(){
+  if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; } }
+  if(actx.state==='suspended') actx.resume();
+}
+function beep({freq=440,type='sine',dur=0.12,vol=0.18,slide=0,delay=0}){
+  if(!actx||muted) return;
+  const t=actx.currentTime+delay;
+  const o=actx.createOscillator(), g=actx.createGain();
+  o.type=type; o.frequency.setValueAtTime(freq,t);
+  if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(40,freq+slide), t+dur);
+  g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g).connect(actx.destination); o.start(t); o.stop(t+dur+0.03);
+}
+function noise({dur=0.3,vol=0.3,cutoff=1100}){
+  if(!actx||muted) return;
+  const t=actx.currentTime, n=Math.floor(actx.sampleRate*dur);
+  const buf=actx.createBuffer(1,n,actx.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/n,2);
+  const src=actx.createBufferSource(); src.buffer=buf;
+  const f=actx.createBiquadFilter(); f.type='lowpass'; f.frequency.setValueAtTime(cutoff,t); f.frequency.exponentialRampToValueAtTime(300,t+dur);
+  const g=actx.createGain(); g.gain.value=vol;
+  src.connect(f).connect(g).connect(actx.destination); src.start(t);
+}
+const sfxPick =()=> beep({freq:520,type:'triangle',dur:0.06,vol:0.12});
+const sfxBoom =()=>{ noise({dur:0.32,vol:0.35,cutoff:1400}); beep({freq:200,type:'sine',dur:0.28,vol:0.22,slide:-130}); };
+const sfxError=()=> beep({freq:150,type:'square',dur:0.15,vol:0.16,slide:-40});
+const sfxLevel=()=> [523,659,784,1047].forEach((f,i)=> beep({freq:f,type:'triangle',dur:0.16,vol:0.18,delay:i*0.09}));
+const sfxStuck=()=> [392,330,262].forEach((f,i)=> beep({freq:f,type:'sine',dur:0.22,vol:0.16,delay:i*0.12}));
 
 // ───────────────────────── 尺寸自适应 ─────────────────────────
 function layout(){
@@ -173,86 +207,58 @@ function genBoard(){
 
 function inGrid(r,c){ return r>=0&&r<ROWS&&c>=0&&c<COLS; }
 
-// ───────────────────────── 连连看寻路 ─────────────────────────
-// 起止点是两个数字格；中间路径只能走「已翻开且为空」的格子；最多拐 2 个弯。
-// 盖住的格子、以及别的数字，都算墙（不可穿过）。返回路径点数组（含起止）或 null。
-function passable(r,c){
-  if(!inGrid(r,c)) return false;                           // 盘外不可走
-  const g=grid[r][c];
-  return g.opened && g.num===0;                            // 只有已翻开的空格才能穿过
-}
+// ───────────────────────── 拖拽可达 ─────────────────────────
+// 把数字 A 沿「已翻开的空格」自由滑动（4 方向、不限拐弯），能滑到 B（含直接相邻）即可。
+// 别的数字、盖住的格子都挡路。这就是「只要能拖过去就能爆」。
 const DIRS=[[-1,0],[1,0],[0,-1],[0,1]];
-function findPath(a,b){
-  const enc=(r,c,d)=>(r*COLS+c)*4+d;
-  const prev=new Map();          // stateId -> prevStateId | 'START'
-  const coord=new Map();         // stateId -> {r,c}
-  const best=new Map();
-  const q=[];
-  for(let d=0;d<4;d++){
-    const nr=a.r+DIRS[d][0], nc=a.c+DIRS[d][1];
-    if(!inGrid(nr,nc)) continue;
-    if(nr===b.r&&nc===b.c) return [{r:a.r,c:a.c},{r:b.r,c:b.c}];
-    if(!passable(nr,nc)) continue;
-    const id=enc(nr,nc,d); best.set(id,0); prev.set(id,'START'); coord.set(id,{r:nr,c:nc});
-    q.push({r:nr,c:nc,d,turns:0,id});
+function isEmpty(r,c){ return inGrid(r,c) && grid[r][c].opened && grid[r][c].num===0; }
+function reach(a,b){
+  if(a.r===b.r && a.c===b.c) return false;
+  const seen=new Uint8Array(ROWS*COLS), q=[];
+  for(const[dr,dc] of DIRS){
+    const r=a.r+dr, c=a.c+dc;
+    if(r===b.r&&c===b.c) return true;            // 直接相邻
+    if(isEmpty(r,c)){ seen[r*COLS+c]=1; q.push([r,c]); }
   }
-  while(q.length){
-    const cur=q.shift();
-    for(let d=0;d<4;d++){
-      const nr=cur.r+DIRS[d][0], nc=cur.c+DIRS[d][1];
-      if(!inGrid(nr,nc)) continue;
-      const turns=cur.turns+(d===cur.d?0:1);
-      if(turns>2) continue;
-      const isTarget=(nr===b.r&&nc===b.c);
-      if(!isTarget && !passable(nr,nc)) continue;
-      const id=enc(nr,nc,d);
-      if(isTarget){
-        const path=[{r:b.r,c:b.c}];
-        let pid=cur.id;
-        while(pid!=='START'){ const co=coord.get(pid); path.push({r:co.r,c:co.c}); pid=prev.get(pid); }
-        path.push({r:a.r,c:a.c});
-        return path.reverse();
-      }
-      if(best.has(id) && best.get(id)<=turns) continue;
-      best.set(id,turns); prev.set(id,cur.id); coord.set(id,{r:nr,c:nc});
-      q.push({r:nr,c:nc,d,turns,id});
+  for(let h=0; h<q.length; h++){
+    const [r,c]=q[h];
+    for(const[dr,dc] of DIRS){
+      const nr=r+dr, nc=c+dc;
+      if(nr===b.r&&nc===b.c) return true;
+      if(isEmpty(nr,nc) && !seen[nr*COLS+nc]){ seen[nr*COLS+nc]=1; q.push([nr,nc]); }
     }
   }
-  return null;
+  return false;
 }
 
 // ───────────────────────── 配对 / 爆破 ─────────────────────────
-function tryMatch(a,b){
+// A=被拖拽的数字，B=目标数字（拖到它上面）。爆炸发生在 B 的位置，只炸开 B 周围 8 格。
+function attemptDrop(a,b){
   if(a.r===b.r && a.c===b.c) return false;
   const ga=grid[a.r][a.c], gb=grid[b.r][b.c];
   if(!ga.opened||!gb.opened||ga.num===0||gb.num===0) return false;
-  if(ga.num+gb.num!==10){ flashCells([a,b],'#e0413a'); return false; }
-  const path=findPath(a,b);
-  if(!path){ flashCells([a,b],'#e0413a'); return false; }
-  detonate(a,b,path);
+  if(ga.num+gb.num!==10){ sfxError(); flashCells([a,b],'#e0413a'); return false; }
+  if(!reach(a,b)){ sfxError(); flashCells([a,b],'#e0413a'); return false; }
+  detonate(a,b);
   return true;
 }
 
-function detonate(a,b,path){
-  pathFx={pts:path,t:14};
-  // 清空这两格
-  for(const cell of [a,b]){
-    spawnParticles(cell.c*CELL+CELL/2, cell.r*CELL+CELL/2, grid[cell.r][cell.c].num);
-    grid[cell.r][cell.c].num=0;
-  }
-  // 炸开两格各自周围 8 格
-  for(const cell of [a,b]){
-    for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
-      if(dr===0&&dc===0) continue;
-      const r=cell.r+dr, c=cell.c+dc;
-      if(inGrid(r,c) && !grid[r][c].opened){
-        grid[r][c].opened=true;
-        flash.push({r,c,color:'#fff6c8',t:12});
-      }
+function detonate(a,b){
+  pathFx={a:{r:a.r,c:a.c}, b:{r:b.r,c:b.c}, t:14};
+  spawnParticles(b.c*CELL+CELL/2, b.r*CELL+CELL/2, grid[b.r][b.c].num);
+  grid[a.r][a.c].num=0;            // 被拖走的数字消失
+  grid[b.r][b.c].num=0;            // 目标数字爆炸消失
+  // 只炸开「目标 B」周围 8 格
+  for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
+    if(dr===0&&dc===0) continue;
+    const r=b.r+dr, c=b.c+dc;
+    if(inGrid(r,c) && !grid[r][c].opened){
+      grid[r][c].opened=true;
+      flash.push({r,c,color:'#fff6c8',t:12});
     }
   }
   pairs++;
-  selected=null;
+  sfxBoom();
   updateHud();
   checkEnd();
 }
@@ -270,11 +276,16 @@ function flashCells(cells,color){ for(const c of cells) flash.push({r:c.r,c:c.c,
 // ───────────────────────── 胜负 / 死局 ─────────────────────────
 function coveredCount(){ let n=0; for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++) if(!grid[r][c].opened) n++; return n; }
 
+function coveredNbrs(cell){ let n=0; for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){ if(!dr&&!dc)continue; const r=cell.r+dr,c=cell.c+dc; if(inGrid(r,c)&&!grid[r][c].opened) n++; } return n; }
 function hasAnyMove(){
   const nums=[];
   for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++) if(grid[r][c].opened && grid[r][c].num>0) nums.push({r,c,n:grid[r][c].num});
   for(let i=0;i<nums.length;i++)for(let j=i+1;j<nums.length;j++){
-    if(nums[i].n+nums[j].n===10 && findPath(nums[i],nums[j])) return {a:nums[i],b:nums[j]};
+    if(nums[i].n+nums[j].n===10 && reach(nums[i],nums[j])){
+      // 建议把数字拖向「被覆盖邻居更多」的一端（爆开更多新格子）
+      const A=nums[i], B=nums[j];
+      return coveredNbrs(A)>coveredNbrs(B) ? {a:B,b:A} : {a:A,b:B};
+    }
   }
   return null;
 }
@@ -288,7 +299,7 @@ function checkEnd(){
 }
 
 function levelClear(){
-  running=false;
+  running=false; sfxLevel();
   const t=(elapsed/1000).toFixed(1);
   const atMax = (COLS>=18 && ROWS>=18);
   const nextDim = (()=>{ setLevelDims(level+1); const d=COLS+'×'+ROWS; setLevelDims(level); return d; })();
@@ -301,7 +312,7 @@ function levelClear(){
   if(b) b.addEventListener('click', ()=>{ level++; startLevel(); });
 }
 function stuck(){
-  running=false;
+  running=false; sfxStuck();
   showOverlay(`<h1>卡住了…</h1>
     <div class="tag">「以为很简单 结果尴尬了」😅</div>
     <div class="sub">第 ${level} 关场上已经没有能凑成 10 的可连数字了。<br>试试「打乱」重排，或者重开本关。</div>
@@ -322,41 +333,53 @@ function shuffleOpen(){
   for(const cl of cells) flash.push({r:cl.r,c:cl.c,color:'#8ed0ff',t:12});
 }
 
-// ───────────────────────── 输入 ─────────────────────────
+// ───────────────────────── 输入（纯拖拽） ─────────────────────────
+// 按住一个数字拖动，松手时若落在另一个数字上、相加=10 且能拖到 → 在目标处爆炸。
+function localXY(clientX,clientY){
+  const rect=canvas.getBoundingClientRect();
+  return { x:(clientX-rect.left)/rect.width*(CELL*COLS), y:(clientY-rect.top)/rect.height*(CELL*ROWS) };
+}
 function cellAt(clientX,clientY){
   const rect=canvas.getBoundingClientRect();
-  const x=(clientX-rect.left)/rect.width*COLS;
-  const y=(clientY-rect.top)/rect.height*ROWS;
-  const c=Math.floor(x), r=Math.floor(y);
+  const c=Math.floor((clientX-rect.left)/rect.width*COLS);
+  const r=Math.floor((clientY-rect.top)/rect.height*ROWS);
   return inGrid(r,c)? {r,c} : null;
 }
-let downCell=null;
+function isNumCell(cell){ return cell && grid[cell.r][cell.c].opened && grid[cell.r][cell.c].num>0; }
+
 function onDown(e){
   if(!running) return;
+  resumeAudio();
   const p=(e.touches?e.touches[0]:e);
-  downCell=cellAt(p.clientX,p.clientY);
+  const cell=cellAt(p.clientX,p.clientY);
+  if(isNumCell(cell)){
+    const xy=localXY(p.clientX,p.clientY);
+    drag={ a:cell, x:xy.x, y:xy.y, hover:null, valid:false };
+    hintFx=null; sfxPick();
+  }
+}
+function onMove(e){
+  if(!drag||!running) return;
+  const p=(e.touches?e.touches[0]:e);
+  const xy=localXY(p.clientX,p.clientY); drag.x=xy.x; drag.y=xy.y;
+  const cell=cellAt(p.clientX,p.clientY);
+  if(isNumCell(cell) && !(cell.r===drag.a.r&&cell.c===drag.a.c)){
+    drag.hover=cell;
+    drag.valid = (grid[drag.a.r][drag.a.c].num+grid[cell.r][cell.c].num===10) && reach(drag.a,cell);
+  } else { drag.hover=null; drag.valid=false; }
 }
 function onUp(e){
-  if(!running) return;
+  if(!drag||!running){ drag=null; return; }
   const p=(e.changedTouches?e.changedTouches[0]:e);
-  const up=cellAt(p.clientX,p.clientY);
-  if(!up){ selected=null; return; }
-  const g=grid[up.r][up.c];
-  const isNum = g.opened && g.num>0;
-  if(!isNum){ selected=null; return; }
-  hintFx=null;
-  if(downCell && (downCell.r!==up.r||downCell.c!==up.c)){
-    const dg=grid[downCell.r][downCell.c];
-    if(dg.opened && dg.num>0){ tryMatch(downCell,up); return; }   // 拖拽连接
-  }
-  // 点击选择
-  if(selected && selected.r===up.r && selected.c===up.c){ selected=null; }
-  else if(selected){ if(!tryMatch(selected,up)) selected=up; }
-  else selected=up;
+  const cell=cellAt(p.clientX,p.clientY);
+  if(isNumCell(cell) && !(cell.r===drag.a.r&&cell.c===drag.a.c)) attemptDrop(drag.a, cell);
+  drag=null;
 }
 canvas.addEventListener('mousedown', onDown);
-canvas.addEventListener('mouseup', onUp);
+window.addEventListener('mousemove', onMove);
+window.addEventListener('mouseup', onUp);
 canvas.addEventListener('touchstart', e=>{ e.preventDefault(); onDown(e); }, {passive:false});
+canvas.addEventListener('touchmove', e=>{ e.preventDefault(); onMove(e); }, {passive:false});
 canvas.addEventListener('touchend', e=>{ e.preventDefault(); onUp(e); }, {passive:false});
 
 // ───────────────────────── HUD / 按钮 ─────────────────────────
@@ -370,6 +393,7 @@ document.getElementById('btnHint').addEventListener('click', ()=>{
 });
 document.getElementById('btnShuffle').addEventListener('click', ()=>{ if(running) shuffleOpen(); });
 document.getElementById('btnNew').addEventListener('click', ()=> startLevel());   // 重开本关
+document.getElementById('btnSound').addEventListener('click', ()=>{ muted=!muted; document.getElementById('btnSound').textContent = muted?'🔇':'🔊'; if(!muted) resumeAudio(); });
 
 // ───────────────────────── overlay ─────────────────────────
 const overlay=document.getElementById('overlay');
@@ -406,16 +430,21 @@ function render(){
       // 翻开：凹陷底色
       ctx.fillStyle='#a07d4d'; roundRect(x,y,s,s,rad); ctx.fill();
       ctx.fillStyle='#00000022'; roundRect(x,y,s,s*0.22,rad); ctx.fill();
-      if(g.num>0){
-        ctx.fillStyle = (selected&&selected.r===r&&selected.c===c)? '#fff3c4' : '#3a2410';
+      const isDragSrc = drag && drag.a.r===r && drag.a.c===c;
+      const isHover   = drag && drag.hover && drag.hover.r===r && drag.hover.c===c;
+      if(g.num>0 && !isDragSrc){      // 拖起的那个数字不画在原位（跟着手指走）
+        ctx.fillStyle='#3a2410';
         ctx.font='900 '+Math.round(s*0.56)+'px "Microsoft YaHei",sans-serif';
         ctx.textAlign='center'; ctx.textBaseline='middle';
         ctx.fillText(g.num, x+s/2, y+s/2+s*0.02);
       }
-      // 选中高亮框
-      if(selected&&selected.r===r&&selected.c===c){
-        ctx.strokeStyle='#ffd21a'; ctx.lineWidth=Math.max(2,s*0.09);
-        roundRect(x+2,y+2,s-4,s-4,rad); ctx.stroke();
+      if(isDragSrc){                  // 原位留个空槽提示
+        ctx.strokeStyle='#ffffff44'; ctx.lineWidth=Math.max(1.5,s*0.06);
+        roundRect(x+s*0.18,y+s*0.18,s*0.64,s*0.64,rad*0.7); ctx.stroke();
+      }
+      if(isHover){                    // 落点高亮：绿=可消，红=不行
+        ctx.strokeStyle = drag.valid ? '#5fe06a' : '#e0635a';
+        ctx.lineWidth=Math.max(2,s*0.1); roundRect(x+2,y+2,s-4,s-4,rad); ctx.stroke();
       }
     }
   }
@@ -440,13 +469,14 @@ function render(){
   }
   flash=flash.filter(f=>f.t>0);
 
-  // 成功连线
+  // 成功爆破：A → B 的连线
   if(pathFx){
     pathFx.t--;
     ctx.globalAlpha=Math.max(0,pathFx.t/14);
-    ctx.strokeStyle='#ffd21a'; ctx.lineWidth=Math.max(3,CELL*0.12); ctx.lineJoin='round'; ctx.lineCap='round';
+    ctx.strokeStyle='#ffd21a'; ctx.lineWidth=Math.max(3,CELL*0.12); ctx.lineCap='round';
     ctx.beginPath();
-    pathFx.pts.forEach((p,i)=>{ const px=p.c*CELL+CELL/2, py=p.r*CELL+CELL/2; i?ctx.lineTo(px,py):ctx.moveTo(px,py); });
+    ctx.moveTo(pathFx.a.c*CELL+CELL/2, pathFx.a.r*CELL+CELL/2);
+    ctx.lineTo(pathFx.b.c*CELL+CELL/2, pathFx.b.r*CELL+CELL/2);
     ctx.stroke(); ctx.globalAlpha=1;
     if(pathFx.t<=0) pathFx=null;
   }
@@ -458,6 +488,24 @@ function render(){
   }
   ctx.globalAlpha=1;
   particles=particles.filter(p=>p.life>0);
+
+  // 跟随手指的被拖数字（画在最上层）
+  if(drag){
+    const num=grid[drag.a.r][drag.a.c].num;
+    if(num>0){
+      const s=CELL-PAD, r=s*0.46;
+      ctx.save();
+      ctx.shadowColor='#0006'; ctx.shadowBlur=8; ctx.shadowOffsetY=3;
+      const grd=ctx.createLinearGradient(drag.x,drag.y-r,drag.x,drag.y+r);
+      grd.addColorStop(0,'#ffe9b8'); grd.addColorStop(1,'#e6b86a');
+      ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(drag.x,drag.y,r,0,7); ctx.fill();
+      ctx.shadowBlur=0; ctx.shadowOffsetY=0;
+      ctx.fillStyle='#3a2410'; ctx.font='900 '+Math.round(s*0.56)+'px "Microsoft YaHei",sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(num, drag.x, drag.y+s*0.02);
+      ctx.restore();
+    }
+  }
 }
 
 function loop(now){
