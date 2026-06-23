@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#a07d4f">
+<title>凑十爆破</title>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; }
+html,body { width:100%; height:100%; overflow:hidden; overscroll-behavior:none; }
+body {
+  background:radial-gradient(ellipse at 50% 20%, #b79363 0%, #9c794d 55%, #7b5f3a 100%);
+  font-family:'Microsoft YaHei','PingFang SC',sans-serif; color:#3a2614;
+  display:flex; align-items:flex-start; justify-content:center; touch-action:none;
+}
+#wrap { position:relative; width:100vw; max-width:520px; min-height:100dvh; margin:0 auto;
+  display:flex; flex-direction:column; align-items:center;
+  padding:env(safe-area-inset-top,8px) 8px env(safe-area-inset-bottom,8px); gap:8px; }
+
+#titlebar {
+  margin-top:4px; background:linear-gradient(#ffe14d,#ffd21a); color:#1a1408;
+  font-weight:900; font-size:clamp(1.05rem,5.2vw,1.5rem); letter-spacing:1px;
+  padding:7px 22px; border-radius:8px; border:2px solid #b89400;
+  box-shadow:0 3px 0 #00000022, inset 0 1px 0 #fff8; white-space:nowrap;
+}
+
+#hud { display:flex; gap:8px; width:100%; max-width:440px; justify-content:center; }
+#hud .pill {
+  background:#5b4226; color:#ffe9c4; font-weight:700; font-size:13px;
+  padding:5px 12px; border-radius:20px; border:1px solid #00000033;
+  box-shadow:inset 0 1px 0 #ffffff22; display:flex; align-items:center; gap:5px; flex:1; justify-content:center;
+}
+#hud .pill b { color:#fff; }
+
+canvas { display:block; border-radius:10px; box-shadow:0 8px 28px #00000044, inset 0 0 0 3px #5b422688; touch-action:none; }
+
+#controls { display:flex; gap:12px; }
+#controls button {
+  font-family:inherit; font-weight:800; font-size:.95rem; letter-spacing:1px; color:#3a2614;
+  padding:10px 26px; border:2px solid #5b4226; border-radius:30px; cursor:pointer;
+  background:linear-gradient(#ffe9b8,#f0c878); box-shadow:0 3px 0 #5b422655; transition:transform .07s;
+}
+#controls button:active { transform:translateY(2px); box-shadow:0 1px 0 #5b422655; }
+.tip { font-size:11px; color:#3a2614aa; text-align:center; line-height:1.6; max-width:440px; }
+
+#overlay {
+  position:absolute; inset:0; z-index:10; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; text-align:center; padding:24px;
+  background:radial-gradient(ellipse at 50% 35%, #b79363ee 0%, #6b5436f2 70%); backdrop-filter:blur(2px);
+}
+#overlay.hidden { display:none; }
+#overlay h1 { font-size:clamp(2rem,11vw,3.2rem); font-weight:900; letter-spacing:2px; color:#fff3d6;
+  text-shadow:0 3px 0 #5b4226, 0 0 22px #ffe14d66; margin-bottom:6px; }
+#overlay .tag { font-size:clamp(.85rem,3.8vw,1.05rem); color:#ffe9c4; margin-bottom:8px; }
+#overlay .sub { font-size:clamp(.82rem,3.5vw,.98rem); color:#ffeecf; margin-bottom:24px; max-width:330px; line-height:1.7; }
+#overlay button {
+  font-family:inherit; font-weight:800; font-size:1.1rem; letter-spacing:2px; color:#3a2614;
+  padding:14px 42px; border:none; border-radius:40px; cursor:pointer;
+  background:linear-gradient(#ffe14d,#ffb01a); box-shadow:0 6px 18px #00000055; transition:transform .08s;
+}
+#overlay button:active { transform:scale(.95); }
+#overlay .rules { margin-top:22px; font-size:.8rem; color:#ffeecfcc; line-height:1.8; max-width:320px; text-align:left; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="titlebar">以为很简单 结果尴尬了</div>
+  <div id="hud">
+    <span class="pill">⏱ <b id="hTime">0.0s</b></span>
+    <span class="pill">💥 消除 <b id="hPairs">0</b></span>
+    <span class="pill">🔒 未开 <b id="hLeft">0</b></span>
+  </div>
+  <canvas id="board"></canvas>
+  <div id="controls">
+    <button id="btnHint">💡 提示</button>
+    <button id="btnShuffle">🔀 打乱</button>
+    <button id="btnNew">🔁 重开</button>
+  </div>
+  <div class="tip">点两个相加=10的数字连接它们；中间不能被别的数字挡住。消除会炸开周围 8 格，露出新数字。把所有格子全部翻开就赢！</div>
+
+  <div id="overlay">
+    <h1>凑十爆破</h1>
+    <div class="tag">点开了以为很简单…</div>
+    <div class="sub">把相加等于 10 的两个数字连起来，引爆它们、炸开周围的格子。<br>最后把整个盘面全部翻开 = 挑战成功。</div>
+    <button id="btnStart">开 始 挑 战</button>
+    <div class="rules">
+      ① 选两个 <b>相加 = 10</b> 的数字（如 5+5、9+1、3+7）。<br>
+      ② 连接路径要畅通：中间被别的数字挡住就连不上（连连看规则，最多拐两个弯）。<br>
+      ③ 引爆后炸开它俩周围 8 格，露出新数字。<br>
+      ④ 把所有盖住的格子全部翻开就通关！
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+// ───────────────────────── 配置 ─────────────────────────
+const COLS = 8, ROWS = 11;
+const ctx = document.getElementById('board').getContext('2d');
+const canvas = document.getElementById('board');
+let CELL = 44, PAD = 4;       // 像素，运行时按屏幕计算
+
+// 单元格状态： opened(是否翻开)  num(0=空, 1..9=数字)
+let grid = [];                // grid[r][c]
+let selected = null;          // {r,c}
+let pairs = 0, startTime = 0, elapsed = 0, running = false, won = false;
+let particles = [];
+let flash = [];               // {r,c,color,t} 红色错误闪烁 / 翻开高亮
+let pathFx = null;            // {pts:[{r,c}], t} 成功连接的连线动画
+let hintFx = null;            // {a,b,t}
+
+// ───────────────────────── 尺寸自适应 ─────────────────────────
+function layout(){
+  const wrapW = Math.min(document.getElementById('wrap').clientWidth - 16, 504);
+  // 留出标题/HUD/按钮的纵向空间
+  const availH = window.innerHeight - 200;
+  const cellByW = Math.floor(wrapW / COLS);
+  const cellByH = Math.floor(availH / ROWS);
+  CELL = Math.max(26, Math.min(cellByW, cellByH));
+  PAD = Math.max(3, Math.round(CELL*0.08));
+  const w = CELL*COLS, h = CELL*ROWS;
+  const DPR = Math.min(window.devicePixelRatio||1, 2);
+  canvas.width = w*DPR; canvas.height = h*DPR;
+  canvas.style.width = w+'px'; canvas.style.height = h+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+window.addEventListener('resize', ()=>{ layout(); });
+
+// ───────────────────────── 生成盘面 ─────────────────────────
+// 全盘填入平衡的数字（每个值都有它的互补值可配对），开局翻开中心 3×3。
+function genBoard(){
+  const cells = ROWS*COLS;
+  const bag = [];
+  // 互补对：(1,9)(2,8)(3,7)(4,6)(5,5)
+  const comp = [[1,9],[2,8],[3,7],[4,6],[5,5]];
+  while(bag.length < cells){
+    const p = comp[(Math.random()*comp.length)|0];
+    bag.push(p[0], p[1]);
+  }
+  bag.length = cells;             // 截断成偶数张正好铺满
+  // 洗牌
+  for(let i=bag.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [bag[i],bag[j]]=[bag[j],bag[i]]; }
+
+  grid = [];
+  let k=0;
+  for(let r=0;r<ROWS;r++){
+    const row=[];
+    for(let c=0;c<COLS;c++) row.push({ num: bag[k++], opened:false });
+    grid.push(row);
+  }
+  // 开局：翻开中心 3×3
+  const cr=(ROWS/2)|0, cc=(COLS/2)|0;
+  for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
+    const r=cr+dr, c=cc+dc;
+    if(inGrid(r,c)) grid[r][c].opened=true;
+  }
+  // 保证开局至少有一对「相邻且凑十」的数字可消，避免一开局就死局
+  const v=1+((Math.random()*9)|0);            // 1..9
+  grid[cr][cc].num=v; grid[cr][cc+1].num=10-v;
+}
+
+function inGrid(r,c){ return r>=0&&r<ROWS&&c>=0&&c<COLS; }
+
+// ───────────────────────── 连连看寻路 ─────────────────────────
+// 起止点是两个数字格；中间路径只能走「已翻开且为空」的格子；最多拐 2 个弯。
+// 盖住的格子、以及别的数字，都算墙（不可穿过）。返回路径点数组（含起止）或 null。
+function passable(r,c){
+  if(!inGrid(r,c)) return false;                           // 盘外不可走
+  const g=grid[r][c];
+  return g.opened && g.num===0;                            // 只有已翻开的空格才能穿过
+}
+const DIRS=[[-1,0],[1,0],[0,-1],[0,1]];
+function findPath(a,b){
+  const enc=(r,c,d)=>(r*COLS+c)*4+d;
+  const prev=new Map();          // stateId -> prevStateId | 'START'
+  const coord=new Map();         // stateId -> {r,c}
+  const best=new Map();
+  const q=[];
+  for(let d=0;d<4;d++){
+    const nr=a.r+DIRS[d][0], nc=a.c+DIRS[d][1];
+    if(!inGrid(nr,nc)) continue;
+    if(nr===b.r&&nc===b.c) return [{r:a.r,c:a.c},{r:b.r,c:b.c}];
+    if(!passable(nr,nc)) continue;
+    const id=enc(nr,nc,d); best.set(id,0); prev.set(id,'START'); coord.set(id,{r:nr,c:nc});
+    q.push({r:nr,c:nc,d,turns:0,id});
+  }
+  while(q.length){
+    const cur=q.shift();
+    for(let d=0;d<4;d++){
+      const nr=cur.r+DIRS[d][0], nc=cur.c+DIRS[d][1];
+      if(!inGrid(nr,nc)) continue;
+      const turns=cur.turns+(d===cur.d?0:1);
+      if(turns>2) continue;
+      const isTarget=(nr===b.r&&nc===b.c);
+      if(!isTarget && !passable(nr,nc)) continue;
+      const id=enc(nr,nc,d);
+      if(isTarget){
+        const path=[{r:b.r,c:b.c}];
+        let pid=cur.id;
+        while(pid!=='START'){ const co=coord.get(pid); path.push({r:co.r,c:co.c}); pid=prev.get(pid); }
+        path.push({r:a.r,c:a.c});
+        return path.reverse();
+      }
+      if(best.has(id) && best.get(id)<=turns) continue;
+      best.set(id,turns); prev.set(id,cur.id); coord.set(id,{r:nr,c:nc});
+      q.push({r:nr,c:nc,d,turns,id});
+    }
+  }
+  return null;
+}
+
+// ───────────────────────── 配对 / 爆破 ─────────────────────────
+function tryMatch(a,b){
+  if(a.r===b.r && a.c===b.c) return false;
+  const ga=grid[a.r][a.c], gb=grid[b.r][b.c];
+  if(!ga.opened||!gb.opened||ga.num===0||gb.num===0) return false;
+  if(ga.num+gb.num!==10){ flashCells([a,b],'#e0413a'); return false; }
+  const path=findPath(a,b);
+  if(!path){ flashCells([a,b],'#e0413a'); return false; }
+  detonate(a,b,path);
+  return true;
+}
+
+function detonate(a,b,path){
+  pathFx={pts:path,t:14};
+  // 清空这两格
+  for(const cell of [a,b]){
+    spawnParticles(cell.c*CELL+CELL/2, cell.r*CELL+CELL/2, grid[cell.r][cell.c].num);
+    grid[cell.r][cell.c].num=0;
+  }
+  // 炸开两格各自周围 8 格
+  for(const cell of [a,b]){
+    for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
+      if(dr===0&&dc===0) continue;
+      const r=cell.r+dr, c=cell.c+dc;
+      if(inGrid(r,c) && !grid[r][c].opened){
+        grid[r][c].opened=true;
+        flash.push({r,c,color:'#fff6c8',t:12});
+      }
+    }
+  }
+  pairs++;
+  selected=null;
+  updateHud();
+  checkEnd();
+}
+
+function spawnParticles(x,y,num){
+  for(let i=0;i<14;i++){
+    const a=Math.random()*Math.PI*2, sp=Math.random()*4+1.5;
+    particles.push({x,y, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp-1.5,
+      life:22+Math.random()*14, max:36, r:Math.random()*3+2,
+      color:i%3? '#c89b5e':'#8a6a3c'});
+  }
+}
+function flashCells(cells,color){ for(const c of cells) flash.push({r:c.r,c:c.c,color,t:14}); selected=null; }
+
+// ───────────────────────── 胜负 / 死局 ─────────────────────────
+function coveredCount(){ let n=0; for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++) if(!grid[r][c].opened) n++; return n; }
+
+function hasAnyMove(){
+  const nums=[];
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++) if(grid[r][c].opened && grid[r][c].num>0) nums.push({r,c,n:grid[r][c].num});
+  for(let i=0;i<nums.length;i++)for(let j=i+1;j<nums.length;j++){
+    if(nums[i].n+nums[j].n===10 && findPath(nums[i],nums[j])) return {a:nums[i],b:nums[j]};
+  }
+  return null;
+}
+
+function checkEnd(){
+  if(coveredCount()===0){ winGame(); return; }
+  // 若没有任何可消除组合、但仍有盖住的格子 → 死局
+  if(!hasAnyMove()){
+    setTimeout(()=>{ if(running && !hasAnyMove() && coveredCount()>0) stuck(); }, 350);
+  }
+}
+
+function winGame(){
+  running=false; won=true;
+  const t=(elapsed/1000).toFixed(1);
+  showOverlay(`<h1>挑战成功！</h1>
+    <div class="tag">原来你是真的厉害 👑</div>
+    <div class="sub">全盘翻开！用时 <b>${t}s</b> · 消除 <b>${pairs}</b> 组<br>${pairs>=30?'手速惊人！':'稳！'}</div>
+    <button id="btnStart">再 来 一 局</button>
+    <div class="rules">把成绩发评论区，看谁能更快通关 😎</div>`);
+  bindStart();
+}
+function stuck(){
+  running=false;
+  showOverlay(`<h1>卡住了…</h1>
+    <div class="tag">「以为很简单 结果尴尬了」😅</div>
+    <div class="sub">场上已经没有能凑成 10 的可连数字了。<br>试试「打乱」重排，或者重开一局。</div>
+    <button id="btnStart">🔁 重 开</button>
+    <div class="rules">提示：尽量先消除被夹住的数字，给后面留出通路。</div>`);
+  bindStart();
+}
+
+// ───────────────────────── 打乱（救场） ─────────────────────────
+function shuffleOpen(){
+  const cells=[], vals=[];
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++) if(grid[r][c].opened && grid[r][c].num>0){ cells.push({r,c}); vals.push(grid[r][c].num); }
+  if(cells.length<2) return;
+  for(let i=vals.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [vals[i],vals[j]]=[vals[j],vals[i]]; }
+  cells.forEach((cl,i)=> grid[cl.r][cl.c].num=vals[i]);
+  selected=null;
+  for(const cl of cells) flash.push({r:cl.r,c:cl.c,color:'#8ed0ff',t:12});
+}
+
+// ───────────────────────── 输入 ─────────────────────────
+function cellAt(clientX,clientY){
+  const rect=canvas.getBoundingClientRect();
+  const x=(clientX-rect.left)/rect.width*COLS;
+  const y=(clientY-rect.top)/rect.height*ROWS;
+  const c=Math.floor(x), r=Math.floor(y);
+  return inGrid(r,c)? {r,c} : null;
+}
+let downCell=null;
+function onDown(e){
+  if(!running) return;
+  const p=(e.touches?e.touches[0]:e);
+  downCell=cellAt(p.clientX,p.clientY);
+}
+function onUp(e){
+  if(!running) return;
+  const p=(e.changedTouches?e.changedTouches[0]:e);
+  const up=cellAt(p.clientX,p.clientY);
+  if(!up){ selected=null; return; }
+  const g=grid[up.r][up.c];
+  const isNum = g.opened && g.num>0;
+  if(!isNum){ selected=null; return; }
+  hintFx=null;
+  if(downCell && (downCell.r!==up.r||downCell.c!==up.c)){
+    const dg=grid[downCell.r][downCell.c];
+    if(dg.opened && dg.num>0){ tryMatch(downCell,up); return; }   // 拖拽连接
+  }
+  // 点击选择
+  if(selected && selected.r===up.r && selected.c===up.c){ selected=null; }
+  else if(selected){ if(!tryMatch(selected,up)) selected=up; }
+  else selected=up;
+}
+canvas.addEventListener('mousedown', onDown);
+canvas.addEventListener('mouseup', onUp);
+canvas.addEventListener('touchstart', e=>{ e.preventDefault(); onDown(e); }, {passive:false});
+canvas.addEventListener('touchend', e=>{ e.preventDefault(); onUp(e); }, {passive:false});
+
+// ───────────────────────── HUD / 按钮 ─────────────────────────
+function updateHud(){
+  document.getElementById('hPairs').textContent=pairs;
+  document.getElementById('hLeft').textContent=coveredCount();
+}
+document.getElementById('btnHint').addEventListener('click', ()=>{
+  if(!running) return; const m=hasAnyMove();
+  if(m) hintFx={a:m.a,b:m.b,t:120};   // 没有可消组合时什么也不做（死局检测会接管）
+});
+document.getElementById('btnShuffle').addEventListener('click', ()=>{ if(running) shuffleOpen(); });
+document.getElementById('btnNew').addEventListener('click', ()=> startGame());
+
+// ───────────────────────── overlay ─────────────────────────
+const overlay=document.getElementById('overlay');
+function showOverlay(html){ overlay.innerHTML=html; overlay.classList.remove('hidden'); }
+function hideOverlay(){ overlay.classList.add('hidden'); }
+function bindStart(){ const b=document.getElementById('btnStart'); if(b) b.addEventListener('click', startGame); }
+
+function startGame(){
+  layout(); genBoard();
+  pairs=0; selected=null; particles=[]; flash=[]; pathFx=null; hintFx=null;
+  won=false; running=true; startTime=performance.now(); elapsed=0;
+  updateHud(); hideOverlay();
+}
+
+// ───────────────────────── 渲染 ─────────────────────────
+function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+function render(){
+  const W=CELL*COLS, H=CELL*ROWS;
+  ctx.clearRect(0,0,W,H);
+  // 底板
+  ctx.fillStyle='#7c6038'; ctx.fillRect(0,0,W,H);
+
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const g=grid[r][c];
+    const x=c*CELL+PAD/2, y=r*CELL+PAD/2, s=CELL-PAD, rad=Math.max(3,s*0.16);
+    if(!g.opened){
+      // 盖住：米色凸起方块
+      ctx.fillStyle='#caa66e'; roundRect(x,y,s,s,rad); ctx.fill();
+      ctx.fillStyle='#e0c694'; roundRect(x+s*0.08,y+s*0.08,s*0.84,s*0.5,rad*0.8); ctx.fill(); // 高光
+      ctx.fillStyle='#00000018'; roundRect(x,y+s*0.7,s,s*0.3,rad); ctx.fill();                 // 底部阴影
+    }else{
+      // 翻开：凹陷底色
+      ctx.fillStyle='#a07d4d'; roundRect(x,y,s,s,rad); ctx.fill();
+      ctx.fillStyle='#00000022'; roundRect(x,y,s,s*0.22,rad); ctx.fill();
+      if(g.num>0){
+        ctx.fillStyle = (selected&&selected.r===r&&selected.c===c)? '#fff3c4' : '#3a2410';
+        ctx.font='900 '+Math.round(s*0.56)+'px "Microsoft YaHei",sans-serif';
+        ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(g.num, x+s/2, y+s/2+s*0.02);
+      }
+      // 选中高亮框
+      if(selected&&selected.r===r&&selected.c===c){
+        ctx.strokeStyle='#ffd21a'; ctx.lineWidth=Math.max(2,s*0.09);
+        roundRect(x+2,y+2,s-4,s-4,rad); ctx.stroke();
+      }
+    }
+  }
+
+  // 提示高亮
+  if(hintFx){
+    hintFx.t--; if(hintFx.t<=0) hintFx=null;
+    else for(const cl of [hintFx.a,hintFx.b]){
+      const x=cl.c*CELL+PAD/2, y=cl.r*CELL+PAD/2, s=CELL-PAD;
+      ctx.strokeStyle='rgba(120,210,120,'+(0.4+0.4*Math.sin(hintFx.t*0.3))+')';
+      ctx.lineWidth=Math.max(2,s*0.1); roundRect(x+2,y+2,s-4,s-4,Math.max(3,s*0.16)); ctx.stroke();
+    }
+  }
+
+  // 翻开闪光 + 错误红闪
+  for(const f of flash){
+    f.t--;
+    if(f.r<0) continue;
+    const x=f.c*CELL+PAD/2, y=f.r*CELL+PAD/2, s=CELL-PAD;
+    ctx.globalAlpha=Math.max(0,f.t/14)*0.7; ctx.fillStyle=f.color;
+    roundRect(x,y,s,s,Math.max(3,s*0.16)); ctx.fill(); ctx.globalAlpha=1;
+  }
+  flash=flash.filter(f=>f.t>0);
+
+  // 成功连线
+  if(pathFx){
+    pathFx.t--;
+    ctx.globalAlpha=Math.max(0,pathFx.t/14);
+    ctx.strokeStyle='#ffd21a'; ctx.lineWidth=Math.max(3,CELL*0.12); ctx.lineJoin='round'; ctx.lineCap='round';
+    ctx.beginPath();
+    pathFx.pts.forEach((p,i)=>{ const px=p.c*CELL+CELL/2, py=p.r*CELL+CELL/2; i?ctx.lineTo(px,py):ctx.moveTo(px,py); });
+    ctx.stroke(); ctx.globalAlpha=1;
+    if(pathFx.t<=0) pathFx=null;
+  }
+
+  // 粒子
+  for(const p of particles){ p.x+=p.vx; p.y+=p.vy; p.vy+=0.22; p.life--;
+    ctx.globalAlpha=Math.max(0,p.life/p.max); ctx.fillStyle=p.color;
+    ctx.fillRect(p.x-p.r/2,p.y-p.r/2,p.r,p.r);
+  }
+  ctx.globalAlpha=1;
+  particles=particles.filter(p=>p.life>0);
+}
+
+function loop(now){
+  if(running){ elapsed=now-startTime; document.getElementById('hTime').textContent=(elapsed/1000).toFixed(1)+'s'; }
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ───────────────────────── 启动 ─────────────────────────
+layout(); genBoard(); updateHud();
+bindStart();
+requestAnimationFrame(loop);
+
+})();
+</script>
+</body>
+</html>
